@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fake Bank - Account</title>
+    <style>
+        body {
+            background-color: #f0f8ff;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .account-box {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 500px;
+            text-align: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <div class="account-box">
+        <h1>Welcome, {{ username }}!</h1>
+        <p>Your balance: ${{ "%.2f"|format(balance) }}</p>
+        <a href="{{ url_for('transfer') }}">Transfer Money</a>
+        <a href="{{ url_for('logout') }}">Logout</a>
+
+        <h2>Transaction History</h2>
+        <table>
+            <tr>
+                <th>Type</th>
+                <th>Counterparty</th>
+                <th>Amount</th>
+                <th>Date</th>
+            </tr>
+            {% for transaction in transactions %}
+            <tr>
+                <td>
+                    {% if transaction.Sender == username %}
+                        Sent
+                    {% else %}
+                        Received
+                    {% endif %}
+                </td>
+                <td>
+                    {% if transaction.Sender == username %}
+                        {{ transaction.Receiver }}
+                    {% else %}
+                        {{ transaction.Sender }}
+                    {% endif %}
+                </td>
+                <td>${{ "%.2f"|format(transaction.Amount) }}</td>
+                <td>{{ transaction.Date }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>
