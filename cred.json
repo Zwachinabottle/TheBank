@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "gold-gearbox-478419-c0",
+  "private_key_id": "28924339a425d7ffcc206361f3432ba4b87ed27c",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDMbJ4Qsg+/Ayld\nHb1NVdtbOpZpFZx01RO0u8KwYsom7ZqZMGze/3hjGOLx7KejJS6EP0SdAmT2zpee\nTjrSJJXUjgon1DNXgdsN0zPUcMrdpduY+cTtdiZr17EaOijYf1H5CrJPZ4PC8Nue\nUL3Ush4wkgwfEqpkw0PD5ywU2LmXQ7xWigQ1Gu5DYJT90EcZZUQR5OgtcAPoWWZf\nOF93aoUYnIFcl1gxg5wPkOPrqM9siZvFlF6aMUkfYIZL9U3PvoMrMsyhecMJVkaN\nT6rqMfVXIWkoKoYYl0jT2UAoQK3iwo2xPlCiDZnJcIes1pQ6p9izvrCrZy5ZroG4\nydoaBMZ7AgMBAAECggEAEsl8sV4b8lsRBxy/lAbq9PRqdFfnHBmlCPwkhV9e4rr9\ndUytBMWHw9u6p68vLOAy6TaDUMayjrgn2QWphDyWhIVVS5nF6inl/txFLCX9juc6\nSlHSFlzAZTLadOWZcWQqHXAtOPzzcAwAswkKmSyRd7dEY+qsPDxx0uRA+d19GPiX\nexRnfbAF64USSlyLVGKvyBmt7acvRtwRDhu9wKKw1uVLedFH/iLHSFEEXipPc6dX\nflWpf8+SgBEu3q8wtGAmhYzS1izdwSAG3Dsu+DsTI1PUKJujxIs4KkBmU1ot8l63\nlccgdhEwucCZ/frdIzAbE0G9UnMzA7u0NBenvk2UaQKBgQD4Q7bWc9DgzKj7gm7C\nrZt7zF9rSIAuGhoLCXeNPoqVZHpLeA+zIeFqiuiT1bdSoWGkEG+RaqMWObwkdc76\n85ntWhKWbm6cFPvgUh5+QWRki2gdJ4rV7FZBqKToF1Gja2nlR7+IE1raaq1fy4jv\nOKmlIQudC5uz/WPs4suJ9xiU7wKBgQDSyzYEpmexwpYzHVPCWhsgmneAv3x7p0HI\neiUiyxGaX6xKE8MH0nAbMx9hFFeDQXPqYAtvD/jetmQ0RzUDcFwOlS5OeBUO+5aK\n8YgARJPJkE4U8QiSSPHQO+JqLuuAF9rOY686PyVjkIUyOe4BlCcp86iNurhU4AW6\nYBgTyGsfNQKBgQDyn7qf+q+4AktjASWdvGynoCPghQpAA+JPxwC/WM+3EGs0NjGh\nrwrNRNPnJoXyiyURYb6nLsATiHkGaNvPBSL5g32G5oXSo+9EWvzSBrZGTLeDRpG4\nXzAtGtOOvrtaKi9jk6rrIX841eh6Jj+9CnNAnfrrj9yrGof9iefA/WtYoQKBgQC+\nR4+4fNoH3YYmF+ge/aWVNbqALtpY6K96H8Bb+wEl4A0vRU19RxnJg8lkoa8pnbDc\nNdy8YaeeqvgjNNAHDasbwtBtJvqjbroDLGo/C6h4f9nsD3RUUKJv/U6x2S7ejyoF\nunhX1N6UVMXXg/Fz3V/I/9j8Lzvr6dlh1xKE8Rq5rQKBgD/AUBmBSsh+fnGroe37\niImbQ1nlCPFUFJV/2XAINfmb/e5ZS6gEFSs7BB8LCMl6n5C3DrqcCZ+87yvyTQ1K\nBVq9tXhdNfoPoBUyFMCGegR5HoSMY8BAzRmoznYsIqe4gDUFrdxq+jdJAnj5pmez\nFRmnn1lLrtCKYNKjhwALY9Mv\n-----END PRIVATE KEY-----\n",
+  "client_email": "zwachinabank@gold-gearbox-478419-c0.iam.gserviceaccount.com",
+  "client_id": "103045345006329310065",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/zwachinabank%40gold-gearbox-478419-c0.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
