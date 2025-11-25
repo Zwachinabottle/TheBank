@@ -1,50 +1,223 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en" class="dark-mode">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zachary's Bank Account-Login</title>
-    <link href="{{ url_for('static', filename='styles/styles.css')}}" rel="stylesheet" />
-    </head>
-    <style>
-        body {
-            background-color: #1E90FF;  /* Blue background */
-            font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .login-box {
-            background-color: white;
-            padding: 20px;
-            border-radius: 5px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            width: 300px;
-            text-align: center;
-        }
-        input, button {
-            margin: 10px 0;
-            width: 100%;
-            padding: 8px;
-        }
-        .error {
-            color: red;
-        }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Academy High School Bank — Login</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --brand: #24bff0;
+      --bg: #11191c;
+      --bg2: #1a2c32;
+      --text: #d7e6eb;
+      --text-muted: #9db6bd;
+      --card: #182429;
+      --input-bg: #243238;
+      --border: #2e4b52;
+      --rounded: 14px;
+    }
+
+    /* Optional: remove this if you do NOT want default dark mode */
+    .dark-mode {
+      color-scheme: dark;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: radial-gradient(800px 400px at 10% 10%, rgba(36,191,240,0.12), transparent 15%),
+                  radial-gradient(600px 300px at 90% 90%, rgba(36,191,240,0.10), transparent 12%),
+                  linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      color: var(--text);
+      font-family: "Inter", system-ui;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 960px;
+      background: var(--card);
+      border-radius: var(--rounded);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.55);
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      overflow: hidden;
+    }
+
+    .promo {
+      padding: 36px;
+      background: linear-gradient(180deg, rgba(36,191,240,0.10), rgba(36,191,240,0.05));
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 18px;
+      color: var(--text);
+    }
+
+    .logo img {
+      filter: brightness(0.8);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      color: var(--text);
+    }
+
+    p.lead {
+      margin: 0;
+      color: var(--text-muted);
+    }
+
+    .chip {
+      background: var(--bg2);
+      border: 1px dashed rgba(255,255,255,0.06);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .shape {
+      position: absolute;
+      border-radius: 12px;
+      filter: blur(6px);
+      opacity: 0.18;
+    }
+
+    .shape.a { width:120px;height:120px; background:var(--brand); top:10%; right:6%; }
+    .shape.b { width:60px;height:60px; background:#1a9cbc; bottom:10%; left:8%; }
+
+    .form-wrap {
+      padding: 28px 36px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 14px;
+      background: var(--bg2);
+      color: var(--text);
+    }
+
+    .avatar {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      background: linear-gradient(135deg,var(--brand),#1bb1e9);
+      display: grid;
+      place-items: center;
+      color: white;
+      font-weight: 700;
+      font-size: 20px;
+      box-shadow: 0 8px 22px rgba(36,191,240,0.25);
+    }
+
+    .welcome h2 { margin: 0; font-size: 18px; color: var(--text); }
+    .welcome p { margin: 0; font-size: 13px; color: var(--text-muted); }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .input {
+      background: var(--input-bg);
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      transition: 0.2s;
+    }
+
+    .input:focus-within {
+      border-color: var(--brand);
+      box-shadow: 0 0 10px rgba(36,191,240,0.18);
+    }
+
+    .input input {
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 15px;
+      width: 100%;
+    }
+
+    button {
+      background: var(--brand);
+      border: 0;
+      padding: 10px 16px;
+      border-radius: 10px;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+
+    button:hover {
+      box-shadow: 0 0 16px rgba(36,191,240,0.35);
+      transform: translateY(-1px);
+    }
+
+    @media (max-width: 900px) {
+      .card { grid-template-columns: 1fr; max-width: 420px; }
+      .promo { order: 2; text-align: center; }
+      .form-wrap { order: 1; }
+      .shape { display: none; }
+    }
+  </style>
 </head>
+
 <body>
-    <div class="login-box">
-        <h1>Fake Bank</h1>
-        {% if error %}
-            <p class="error">{{ error }}</p>
-        {% endif %}
-        <form method="POST">
-            <input type="text" name="username" placeholder="Username" required>
-            <input type="password" name="password" placeholder="Password" required>
-            <button type="submit">Login</button>
-        </form>
-    </div>
+  <main class="card" role="main">
+    <section class="promo">
+      <div class="logo">
+        <img src="../images/ahs_logo.jpg" alt="Academy High School Bank" style="height: 200px;">
+      </div>
+
+      <h1>Welcome to Academy High School Branch of ZC Bank</h1>
+      <p class="lead">Learn money skills, manage a class account, and compete in a safe environment.</p>
+
+      <div class="fun-list">
+        <div class="chip">Student accounts</div>
+        <div class="chip">Teacher tools</div>
+        <div class="chip">Leaderboards</div>
+      </div>
+
+      <div class="shape a"></div>
+      <div class="shape b"></div>
+    </section>
+
+    <section class="form-wrap">
+      <div class="welcome">
+        <div class="avatar">ZC Bank</div>
+        <div>
+          <h2>Sign in to your account</h2>
+          <p>Use your classroom username. Need help? Ask your teacher.</p>
+        </div>
+      </div>
+
+      <form method="POST">
+        <div class="input"><input type="text" name="username" placeholder="Username" required></div>
+        <div class="input"><input type="password" name="password" placeholder="Password" required></div>
+        <button type="submit">Login</button>
+      </form>
+    </section>
+  </main>
 </body>
 </html>
