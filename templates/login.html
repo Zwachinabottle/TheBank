@@ -8,8 +8,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
   <style>
+    /* ---------- COLOR THEMES ---------- */
+
     :root {
       --brand: #24bff0;
+
+      /* Dark Mode (default) */
       --bg: #11191c;
       --bg2: #1a2c32;
       --text: #d7e6eb;
@@ -17,13 +21,21 @@
       --card: #182429;
       --input-bg: #243238;
       --border: #2e4b52;
+
       --rounded: 14px;
     }
 
-    /* Optional: remove this if you do NOT want default dark mode */
-    .dark-mode {
-      color-scheme: dark;
+    .light-mode {
+      --bg: #f3f7f9;
+      --bg2: #ffffff;
+      --text: #1b1f21;
+      --text-muted: #556166;
+      --card: #ffffff;
+      --input-bg: #ecf1f3;
+      --border: #c7d2d6;
     }
+
+    /* ---------- BASE STYLES ---------- */
 
     html, body {
       height: 100%;
@@ -37,6 +49,7 @@
       padding: 32px;
       color: var(--text);
       font-family: "Inter", system-ui;
+      transition: background 0.3s ease, color 0.3s ease;
     }
 
     .card {
@@ -44,11 +57,14 @@
       max-width: 960px;
       background: var(--card);
       border-radius: var(--rounded);
-      box-shadow: 0 10px 30px rgba(0,0,0,0.55);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
       display: grid;
       grid-template-columns: 1fr 420px;
       overflow: hidden;
+      transition: background 0.3s ease;
     }
+
+    /* ---------- PROMO SIDE ---------- */
 
     .promo {
       padding: 36px;
@@ -60,21 +76,29 @@
       color: var(--text);
     }
 
-    .logo img {
-      filter: brightness(0.8);
+    h1 { margin: 0; font-size: 26px; color: var(--text); }
+    p.lead { margin: 0; color: var(--text-muted); }
+
+    /* Pretty Teacher Button */
+    .teacher-tools-btn {
+      display: inline-block;
+      padding: 10px 18px;
+      background: linear-gradient(135deg, var(--brand), #1bb1e9);
+      color: white;
+      border-radius: 999px;
+      font-weight: 600;
+      text-decoration: none;
+      margin: 6px 0;
+      transition: 0.2s;
+      box-shadow: 0 3px 12px rgba(36,191,240,0.35);
     }
 
-    h1 {
-      margin: 0;
-      font-size: 26px;
-      color: var(--text);
+    .teacher-tools-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(36,191,240,0.55);
     }
 
-    p.lead {
-      margin: 0;
-      color: var(--text-muted);
-    }
-
+    /* Chips */
     .chip {
       background: var(--bg2);
       border: 1px dashed rgba(255,255,255,0.06);
@@ -84,15 +108,7 @@
       color: var(--text);
     }
 
-    .shape {
-      position: absolute;
-      border-radius: 12px;
-      filter: blur(6px);
-      opacity: 0.18;
-    }
-
-    .shape.a { width:120px;height:120px; background:var(--brand); top:10%; right:6%; }
-    .shape.b { width:60px;height:60px; background:#1a9cbc; bottom:10%; left:8%; }
+    /* ---------- FORM SIDE ---------- */
 
     .form-wrap {
       padding: 28px 36px;
@@ -102,10 +118,11 @@
       gap: 14px;
       background: var(--bg2);
       color: var(--text);
+      transition: background 0.3s ease;
     }
 
     .avatar {
-      width: 56px;
+      width: 57px;
       height: 56px;
       border-radius: 14px;
       background: linear-gradient(135deg,var(--brand),#1bb1e9);
@@ -117,21 +134,9 @@
       box-shadow: 0 8px 22px rgba(36,191,240,0.25);
     }
 
-    .welcome h2 { margin: 0; font-size: 18px; color: var(--text); }
-    .welcome p { margin: 0; font-size: 13px; color: var(--text-muted); }
+    form { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
 
-    form {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-top: 6px;
-    }
-
-    label {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-    }
+    label { font-size: 13px; font-weight: 600; color: var(--text); }
 
     .input {
       background: var(--input-bg);
@@ -168,17 +173,44 @@
       cursor: pointer;
       transition: 0.15s;
     }
-
     button:hover {
       box-shadow: 0 0 16px rgba(36,191,240,0.35);
       transform: translateY(-1px);
+    }
+
+    /* ---------- Toggle Button ---------- */
+
+    .toggle-btn {
+      width: 44px;
+      height: 24px;
+      border-radius: 50px;
+      border: 2px solid var(--border);
+      background: var(--input-bg);
+      position: relative;
+      cursor: pointer;
+      transition: 0.25s ease;
+    }
+
+    .toggle-btn::after {
+      content: "";
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--brand);
+      top: 2px;
+      left: 2px;
+      transition: 0.25s ease;
+    }
+
+    .light-mode .toggle-btn::after {
+      transform: translateX(20px);
     }
 
     @media (max-width: 900px) {
       .card { grid-template-columns: 1fr; max-width: 420px; }
       .promo { order: 2; text-align: center; }
       .form-wrap { order: 1; }
-      .shape { display: none; }
     }
   </style>
 </head>
@@ -187,34 +219,34 @@
   <main class="card" role="main">
     <section class="promo">
       <div class="logo">
-        <img src="../images/PlanoAcademyHSLogo.jpg" alt="Academy-High-School-Bank" style="height: 200px;">
+        <img src="../images/ahs_logo.jpg" alt="Academy-High-School-Bank" style="height: 200px;">
       </div>
-
-      <h1>Welcome to Academy High School Branch of ZC Bank</h1>
-      <p class="lead">Learn money skills, manage a class account, and compete in a safe environment.</p>
-
+      <h1>Welcome to Academy High School's Branch of Vex Bank</h1>
+      <p class="lead">Learn money skills, manage your account, and compete in a hostile environment.</p>
       <div class="fun-list">
-        <div class="chip">Student accounts</div>
-        <div class="chip">Teacher tools</div>
-        <div class="chip">Leaderboards</div>
+        <a href="/teachertools" class="teacher-tools-btn">Teacher Tools</a>
       </div>
-
-      <div class="shape a"></div>
-      <div class="shape b"></div>
     </section>
 
     <section class="form-wrap">
+      <div class="toggle-container">
+        <button class="toggle-btn" id="theme-toggle"></button>
+      </div>
+
       <div class="welcome">
-        <div class="avatar">ZC Bank</div>
+        <div class="avatar">&nbsp;&nbsp;Vex &nbsp;Bank</div>
         <div>
           <h2>Sign in to your account</h2>
           <p>Use your classroom username. Need help? Ask your teacher.</p>
         </div>
       </div>
-        <h1>Account Login</h1>
-        {% if error %}
-            <p class="error">{{ error }}</p>
-        {% endif %}
+
+      <h1>Account Login</h1>
+
+      {% if error %}
+          <p class="error">{{ error }}</p>
+      {% endif %}
+
       <form method="POST">
         <div class="input"><input type="text" name="username" placeholder="Username" required></div>
         <div class="input"><input type="password" name="password" placeholder="Password" required></div>
@@ -222,5 +254,14 @@
       </form>
     </section>
   </main>
+
+  <script>
+    const toggleBtn = document.getElementById("theme-toggle");
+
+    toggleBtn.addEventListener("click", () => {
+      document.documentElement.classList.toggle("light-mode");
+      document.documentElement.classList.toggle("dark-mode");
+    });
+  </script>
 </body>
 </html>

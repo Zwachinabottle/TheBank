@@ -1,75 +1,366 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" class="dark-mode">
 <head>
-    <title>Fake Bank - Account</title>
+    <meta charset="UTF-8">
+    <title>Account Dashboard</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
     <style>
+        /* ---------- THEMES ---------- */
+
+        :root {
+            --brand: #24bff0;
+
+            --bg: #11191c;
+            --bg2: #1a2c32;
+            --bg3: #182429; /* central column */
+            --text: #d7e6eb;
+            --text-muted: #9db6bd;
+            --input-bg: #243238;
+            --border: #2e4b52;
+
+            --rounded: 14px;
+        }
+
+        .light-mode {
+            --bg: #e7eef2;
+            --bg2: #f5f8fa;
+            --bg3: #ffffff; /* central card */
+            --text: #1b1f21;
+            --text-muted: #556166;
+            --input-bg: #ecf1f3;
+            --border: #c7d2d6;
+        }
+
+        /* ---------- PAGE LAYOUT ---------- */
+
         body {
-            background-color: #f0f8ff;
-            font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
             margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Inter", system-ui;
+
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
         }
-        .account-box {
-            background-color: white;
-            padding: 20px;
-            border-radius: 5px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            width: 500px;
+
+        .side-banner {
+            flex: 1;
+            background: var(--bg2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: var(--text-muted);
+            border-right: 1px solid var(--border);
+        }
+
+        .side-banner:last-of-type {
+            border-right: none;
+            border-left: 1px solid var(--border);
+        }
+
+        /* ---------- CENTER COLUMN (MAIN DASHBOARD) ---------- */
+
+        .center-column {
+            flex: 5; /* bigger column */
+            max-width: 1200px;
+            margin: auto;
+
+            height: 100vh;
+            overflow-y: auto;
+
+            padding: 35px;
+            background: var(--bg3);
+
+            border-left: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+
+            box-shadow:
+                0 0 20px rgba(0,0,0,0.25),
+                0 0 60px rgba(0,0,0,0.15);
+        }
+
+        .toggle-container {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        h1 {
             text-align: center;
+            margin-top: 10px;
+            font-size: 32px;
         }
+
+        h2 {
+            margin-top: 0;
+            font-size: 20px;
+        }
+
+        /* ---------- INFO CARDS ---------- */
+
+        .info-row {
+            display: flex;
+            gap: 20px;
+            margin-top: 25px;
+        }
+
+        .info-card {
+            flex: 1;
+            background: var(--bg2);
+            padding: 20px;
+            border-radius: var(--rounded);
+            border: 1px solid var(--border);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+        }
+
+        /* ---------- LOAN BUTTON ---------- */
+
+        .loan-btn {
+            width: 100%;
+            padding: 16px;
+            margin: 25px 0;
+
+            background: linear-gradient(135deg,var(--brand), #1bb1e9);
+            border: 0;
+            border-radius: var(--rounded);
+            color: white;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+
+            box-shadow: 0 4px 12px rgba(36,191,240,0.25);
+
+            transition: 0.2s;
+        }
+
+        .loan-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 7px 18px rgba(36,191,240,0.35);
+        }
+
+        /* ---------- TRANSACTION AREA ---------- */
+
+        .transaction-row {
+            display: flex;
+            gap: 20px;
+            margin-top: 25px;
+        }
+
+        .transaction-box {
+            flex: 1;
+            background: var(--bg2);
+            padding: 20px;
+            border-radius: var(--rounded);
+            border: 1px solid var(--border);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+        }
+
+        /* Fix for transaction form inputs */
+.transaction-box form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.transaction-box input {
+    width: 100%;
+    padding: 12px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    box-sizing: border-box; /* Prevents padding from expanding width */
+    box-shadow: none; /* Remove shadow to avoid overflow */
+}
+
+.transaction-box input::placeholder {
+    color: var(--text-muted);
+}
+
+
+        .transaction-box button {
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            border: none;
+            background: var(--brand);
+            color: white;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 14px;
+        }
+
+        /* ---------- HISTORY BOX ---------- */
+
+        .history-box {
+            height: 300px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
         table {
             width: 100%;
-            border-collapse: collapse;
+            font-size: 15px;
+            border-spacing: 0 10px;
         }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
+
+        td {
+            padding: 6px 4px;
         }
-        th {
-            background-color: #f2f2f2;
+
+        /* ---------- TOGGLE BUTTON ---------- */
+
+        .toggle-btn {
+            width: 44px;
+            height: 24px;
+            border-radius: 50px;
+            border: 2px solid var(--border);
+            background: var(--input-bg);
+            position: relative;
+            cursor: pointer;
+            transition: 0.25s ease;
         }
+
+        .toggle-btn::after {
+            content: "";
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--brand);
+            top: 2px;
+            left: 2px;
+            transition: 0.25s ease;
+        }
+
+        .light-mode .toggle-btn::after {
+            transform: translateX(20px);
+        }
+
+        /* Logout Button */
+.logout-btn {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    padding: 8px 16px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+    transition: 0.2s;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.logout-btn:hover {
+    background: rgba(36, 191, 240, 0.2);
+    border-color: var(--brand);
+}
+
     </style>
 </head>
-<body>
-    <div class="account-box">
-        <h1>Welcome, {{ username }}!</h1>
-        <p>Your balance: ${{ "%.2f"|format(balance) }}</p>
-        <a href="{{ url_for('transfer') }}">Transfer Money</a>
-        <a href="{{ url_for('logout') }}">Logout</a>
 
-        <h2>Transaction History</h2>
-        <table>
-            <tr>
-                <th>Type</th>
-                <th>Counterparty</th>
-                <th>Amount</th>
-                <th>Date</th>
-            </tr>
-            {% for transaction in transactions %}
-            <tr>
-                <td>
-                    {% if transaction.Sender == username %}
-                        Sent
-                    {% else %}
-                        Received
-                    {% endif %}
-                </td>
-                <td>
-                    {% if transaction.Sender == username %}
-                        {{ transaction.Receiver }}
-                    {% else %}
-                        {{ transaction.Sender }}
-                    {% endif %}
-                </td>
-                <td>${{ "%.2f"|format(transaction.Amount) }}</td>
-                <td>{{ transaction.Date }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+<body>
+
+    <div class="side-banner">Funny Banner</div>
+
+    <div class="center-column">
+    <!-- Logout Button -->
+    <a href="{{ url_for('logout') }}" class="logout-btn">
+         Logout
+    </a>
+    <!-- Toggle Button -->
+    <div class="toggle-container">
+        <button class="toggle-btn" id="theme-toggle"></button>
     </div>
+    <h1>Hey, {{ username }}!</h1>
+
+        <!-- INFO CARDS -->
+        <div class="info-row">
+            <div class="info-card">
+                <h2>Available Balance</h2>
+                <p style="font-size: 26px; font-weight: 700;">
+                    ${{ "%.2f"|format(balance) }}
+                </p>
+            </div>
+
+            <div class="info-card">
+                <h2>Account Details</h2>
+                <p>Card Number: <i>Coming soon</i></p>
+                <p>PIN: <i>Coming soon</i></p>
+            </div>
+        </div>
+
+        <!-- LOAN BUTTON -->
+        <button class="loan-btn" onclick="window.location.href='/loan'">Need a Loan?</button>
+
+        <!-- TRANSACTIONS -->
+        <div class="transaction-row">
+
+            <!-- SEND MONEY -->
+<div class="transaction-box">
+    <h2>Make a Transaction</h2>
+    <form method="POST" action="{{ url_for('transfer') }}">
+        <input type="text" name="receiver" placeholder="Receiver Username" required>
+        <input type="number" name="amount" placeholder="Amount" required>
+        <input type="text" name="comment" placeholder="Comment (optional)">
+        <button type="submit">Send Money</button>
+    </form>
+</div>
+
+
+            <!-- HISTORY -->
+            <div class="transaction-box">
+                <h2>Past Transactions</h2>
+                <div class="history-box">
+                    <table>
+                        {% for t in transactions %}
+                        <tr>
+                            <td>
+                                {% if t.Sender == username %}
+                                    <b>Sent to {{ t.Receiver }}</b>
+                                {% else %}
+                                    <b>Received from {{ t.Sender }}</b>
+                                {% endif %}
+                                <br>
+
+                                <span style="color: var(--text-muted); font-size: 13px;">
+                                    {{ t.Date }}
+                                    {% if t.Comment %}
+                                        — "{{ t.Comment }}"
+                                    {% endif %}
+                                </span>
+                            </td>
+                            <td style="font-weight: 700; text-align: right;">
+                                ${{ "%.2f"|format(t.Amount) }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="side-banner">Funny Banner</div>
+
+    <script>
+        const toggleBtn = document.getElementById("theme-toggle");
+        toggleBtn.addEventListener("click", () => {
+            document.documentElement.classList.toggle("light-mode");
+            document.documentElement.classList.toggle("dark-mode");
+        });
+    </script>
+
 </body>
 </html>
