@@ -3,9 +3,8 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='images')
 app.secret_key = "your_secret_key_here"
-
 
 # ---------- GOOGLE SHEETS SETUP ----------
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
