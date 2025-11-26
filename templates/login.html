@@ -84,7 +84,15 @@
       color: var(--text);
     }
 
-    h1 { margin: 0; font-size: 26px; color: var(--text); }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 22px;
+      font-weight: 600;
+    }
+
+    h1 { margin: 0; font-size: 26px; color: var(--text); text-align: center;}
     p.lead { margin: 0; color: var(--text-muted); }
 
     .teacher-tools-btn {
@@ -212,10 +220,12 @@
   <main class="card" role="main">
     <section class="promo">
       <div class="logo">
-        <!-- /Users/bcantarel/academyhighschool/TheBank/templates/login.html -->
-        <img src="{{ url_for('static', filename='ahs_logo.jpg') }}" alt="Academy-High-School-Bank" style="height: 200px;">
+        <img src="{{ url_for('static', filename='ahs_logo.png') }}" alt="Academy High School Bank" style="height: 150px;">
+        <div>
+          <h1>Welcome to <br>Academy High School's Branch of Vex Bank</h1>
+        </div>
       </div>
-      <h1>Welcome to Academy High School's Branch of Vex Bank</h1>
+      
       <p class="lead">Learn money skills, manage your account, and compete in a hostile environment.</p>
       <a href="/teachertools" class="teacher-tools-btn">Teacher Tools</a>
     </section>

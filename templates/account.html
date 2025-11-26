@@ -271,7 +271,11 @@
 
 <body>
 
-    <div class="side-banner">Funny Banner</div>
+    <div class="side-banner">
+    <a href="{{ url_for('loan') }}" class="loan-btn">
+        <img src="{{ url_for('static', filename='banner.png') }}" alt="Funny Banner" style="height: 400px;">
+    </a>
+    </div>
 
     <div class="center-column">
     <!-- Logout Button -->
@@ -300,9 +304,9 @@
             </div>
         </div>
 
-        <!-- LOAN BUTTON -->
+        <!-- LOAN BUTTON 
         <button class="loan-btn" onclick="window.location.href='/loan'">Need a Loan?</button>
-
+        -->
         <!-- TRANSACTIONS -->
         <div class="transaction-row">
 
