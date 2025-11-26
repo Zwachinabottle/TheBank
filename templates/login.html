@@ -1,5 +1,5 @@
-<!doctype html>
-<html lang="en" class="dark-mode">
+<!DOCTYPE html>
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -8,12 +8,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
   <style>
-    /* ---------- COLOR THEMES ---------- */
-
+    /* ---------- BASE DEFAULT VARIABLES ---------- */
     :root {
       --brand: #24bff0;
 
-      /* Dark Mode (default) */
       --bg: #11191c;
       --bg2: #1a2c32;
       --text: #d7e6eb;
@@ -25,6 +23,18 @@
       --rounded: 14px;
     }
 
+    /* ---------- DARK MODE ---------- */
+    .dark-mode {
+      --bg: #11191c;
+      --bg2: #1a2c32;
+      --text: #d7e6eb;
+      --text-muted: #9db6bd;
+      --card: #182429;
+      --input-bg: #243238;
+      --border: #2e4b52;
+    }
+
+    /* ---------- LIGHT MODE ---------- */
     .light-mode {
       --bg: #f3f7f9;
       --bg2: #ffffff;
@@ -36,7 +46,6 @@
     }
 
     /* ---------- BASE STYLES ---------- */
-
     html, body {
       height: 100%;
       margin: 0;
@@ -65,7 +74,6 @@
     }
 
     /* ---------- PROMO SIDE ---------- */
-
     .promo {
       padding: 36px;
       background: linear-gradient(180deg, rgba(36,191,240,0.10), rgba(36,191,240,0.05));
@@ -79,7 +87,6 @@
     h1 { margin: 0; font-size: 26px; color: var(--text); }
     p.lead { margin: 0; color: var(--text-muted); }
 
-    /* Pretty Teacher Button */
     .teacher-tools-btn {
       display: inline-block;
       padding: 10px 18px;
@@ -98,18 +105,7 @@
       box-shadow: 0 6px 18px rgba(36,191,240,0.55);
     }
 
-    /* Chips */
-    .chip {
-      background: var(--bg2);
-      border: 1px dashed rgba(255,255,255,0.06);
-      padding: 8px 12px;
-      border-radius: 999px;
-      font-size: 13px;
-      color: var(--text);
-    }
-
     /* ---------- FORM SIDE ---------- */
-
     .form-wrap {
       padding: 28px 36px;
       display: flex;
@@ -135,8 +131,6 @@
     }
 
     form { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
-
-    label { font-size: 13px; font-weight: 600; color: var(--text); }
 
     .input {
       background: var(--input-bg);
@@ -179,7 +173,6 @@
     }
 
     /* ---------- Toggle Button ---------- */
-
     .toggle-btn {
       width: 44px;
       height: 24px;
@@ -224,15 +217,11 @@
       </div>
       <h1>Welcome to Academy High School's Branch of Vex Bank</h1>
       <p class="lead">Learn money skills, manage your account, and compete in a hostile environment.</p>
-      <div class="fun-list">
-        <a href="/teachertools" class="teacher-tools-btn">Teacher Tools</a>
-      </div>
+      <a href="/teachertools" class="teacher-tools-btn">Teacher Tools</a>
     </section>
 
     <section class="form-wrap">
-      <div class="toggle-container">
-        <button class="toggle-btn" id="theme-toggle"></button>
-      </div>
+      <button class="toggle-btn" id="theme-toggle"></button>
 
       <div class="welcome">
         <div class="avatar">&nbsp;&nbsp;Vex &nbsp;Bank</div>
@@ -245,7 +234,7 @@
       <h1>Account Login</h1>
 
       {% if error %}
-          <p class="error">{{ error }}</p>
+        <p class="error">{{ error }}</p>
       {% endif %}
 
       <form method="POST">
@@ -258,10 +247,30 @@
 
   <script>
     const toggleBtn = document.getElementById("theme-toggle");
+    const root = document.getElementById("html-root");
 
-    toggleBtn.addEventListener("click", () => {
-      document.documentElement.classList.toggle("light-mode");
-      document.documentElement.classList.toggle("dark-mode");
+    function applyTheme(theme) {
+      if (theme === "light") {
+        root.classList.remove("dark-mode");
+        root.classList.add("light-mode");
+      } else {
+        root.classList.remove("light-mode");
+        root.classList.add("dark-mode");
+      }
+      void root.offsetWidth; /* force repaint */
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const saved = "{{ session.get('theme', 'dark') }}";
+      applyTheme(saved);
+    });
+
+    toggleBtn.addEventListener("click", async () => {
+      const r = await fetch("/toggle-theme", { method: "POST" });
+      if (r.ok) {
+        const data = await r.json();
+        applyTheme(data.theme);
+      }
     });
   </script>
 </body>

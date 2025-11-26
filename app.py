@@ -147,16 +147,14 @@ def teacher_tools():
 
 
 # ---------- THEME TOGGLE API ----------
-@app.route("/toggle-theme", methods=["POST"])
+@app.post("/toggle-theme")
 def toggle_theme():
-    if "user" not in session:
-        return jsonify({"error": "User not logged in"}), 401
+    # allow theme toggle for both logged-in AND logged-out users
+    current = session.get("theme", "dark")
+    new = "light" if current == "dark" else "dark"
+    session["theme"] = new
+    return jsonify({"theme": new})
 
-    current_theme = session.get("theme", "dark")
-    new_theme = "light" if current_theme == "dark" else "dark"
-    session["theme"] = new_theme
-
-    return jsonify({"theme": new_theme})
 
 
 if __name__ == "__main__":
