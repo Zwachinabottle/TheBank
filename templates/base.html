@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>{% block title %}{% endblock %}</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* ---------- VARIABLES ---------- */
+
+        :root {
+            --brand: #24bff0;
+
+            --bg: #11191c;
+            --bg2: rgba(26, 44, 50, 0.55);
+            --bg3: rgba(24, 36, 41, 0.55); /* center blurred */
+            --text: #d7e6eb;
+            --text-muted: #9db6bd;
+            --input-bg: rgba(36, 50, 56, 0.65);
+            --border: #2e4b52;
+
+            --rounded: 14px;
+            --blur: 18px;
+        }
+
+        .light-mode {
+            --bg: #e7eef2;
+            --bg2: rgba(245, 248, 250, 0.55);
+            --bg3: rgba(255, 255, 255, 0.65);
+            --text: #1b1f21;
+            --text-muted: #546166;
+            --input-bg: rgba(236, 241, 243, 0.7);
+            --border: #c7d2d6;
+        }
+
+        /* ---------- GLOBAL BACKGROUND (blur + glow) ---------- */
+
+        body {
+            margin: 0;
+            height: 100vh;
+            font-family: Inter, system-ui;
+            display: flex;
+            overflow: hidden;
+
+            background: var(--bg);
+            position: relative;
+        }
+
+        body::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at center,
+                rgba(36, 191, 240, 0.35),
+                transparent 60%);
+            filter: blur(80px);
+            z-index: 0;
+        }
+
+        /* Everything on top */
+        .layer {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            width: 100%;
+        }
+
+        /* ---------- LAYOUT ---------- */
+
+        .side-banner {
+            flex: 1;
+            backdrop-filter: blur(var(--blur));
+            background: var(--bg2);
+            border-right: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .side-banner:last-of-type {
+            border-right: none;
+            border-left: 1px solid var(--border);
+        }
+
+        .center-column {
+            flex: 5;
+            padding: 35px;
+            height: 100vh;
+            overflow-y: auto;
+
+            backdrop-filter: blur(var(--blur));
+            background: var(--bg3);
+
+            border-left: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+
+            box-shadow:
+                0 0 20px rgba(0,0,0,0.25),
+                0 0 60px rgba(0,0,0,0.15);
+        }
+
+        /* ---------- HEADER ELEMENTS ---------- */
+
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo-area img {
+            height: 55px;
+            border-radius: 10px;
+        }
+
+        .top-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .nav-btn {
+            padding: 10px 16px;
+            border-radius: 10px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-weight: 600;
+            text-decoration: none;
+            transition: 0.2s;
+        }
+
+        .nav-btn:hover {
+            background: rgba(36,191,240,0.25);
+            border-color: var(--brand);
+        }
+
+        /* ---------- TOGGLE SWITCH (thinner) ---------- */
+
+        .toggle-btn {
+            width: 40px;
+            height: 20px;
+            border-radius: 50px;
+            border: 1px solid var(--border);
+            background: var(--input-bg);
+            position: relative;
+            cursor: pointer;
+            transition: 0.25s ease;
+        }
+
+        .toggle-btn::after {
+            content: "";
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--brand);
+            top: 2px;
+            left: 2px;
+            transition: 0.25s ease;
+        }
+
+        .light-mode .toggle-btn::after {
+            transform: translateX(20px);
+        }
+
+        /* ---------- FORM INPUTS (same size) ---------- */
+
+        input[type="text"],
+        input[type="password"],
+        input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 15px;
+            box-sizing: border-box;
+        }
+
+        input::placeholder {
+            color: var(--text-muted);
+        }
+    </style>
+
+</head>
+
+<body>
+
+<div class="layer">
+
+    <!-- LEFT BANNER -->
+    <div class="side-banner">
+        <img src="{{ url_for('static', filename='banner.png') }}" style="height:400px;">
+    </div>
+
+    <!-- CENTER COLUMN -->
+    <div class="center-column">
+
+        <div class="top-bar">
+
+            <!-- LEFT: Logo -->
+            <div class="logo-area">
+                <img src="{{ url_for('static', filename='ahs_logo.jpg') }}" alt="School Logo">
+            </div>
+
+            <!-- RIGHT: Buttons -->
+            <div class="top-buttons">
+
+                <a href="{{ url_for('teacher_tools_login') }}" class="nav-btn">
+                    Teacher Tools
+                </a>
+
+                <a href="#" class="nav-btn">
+                    Vex Investments
+                </a>
+
+                <button class="toggle-btn" id="theme-toggle"></button>
+
+            </div>
+        </div>
+
+        {% block content %}
+        {% endblock %}
+
+    </div>
+
+    <!-- RIGHT BANNER -->
+    <div class="side-banner">Funny Banner</div>
+
+</div>
+
+<!-- ---------- THEME JS ---------- -->
+<script>
+    const toggleBtn = document.getElementById("theme-toggle");
+
+    function applyTheme(theme) {
+        if (theme === "light") {
+            document.documentElement.classList.remove("dark-mode");
+            document.documentElement.classList.add("light-mode");
+        } else {
+            document.documentElement.classList.remove("light-mode");
+            document.documentElement.classList.add("dark-mode");
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        const saved = "{{ session.get('theme', 'dark') }}";
+        applyTheme(saved);
+    });
+
+    toggleBtn.addEventListener("click", async () => {
+        const r = await fetch("/toggle-theme", { method: "POST" });
+        if (r.ok) {
+            const data = await r.json();
+            applyTheme(data.theme);
+        }
+    });
+</script>
+
+</body>
+</html>

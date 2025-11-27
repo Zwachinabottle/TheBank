@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Academy High School Bank — Login</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* ---------- BASE DEFAULT VARIABLES ---------- */
+    :root {
+      --brand: #24bff0;
+
+      --bg: #11191c;
+      --bg2: #1a2c32;
+      --text: #d7e6eb;
+      --text-muted: #9db6bd;
+      --card: #182429;
+      --input-bg: #243238;
+      --border: #2e4b52;
+
+      --rounded: 14px;
+    }
+
+    /* ---------- DARK MODE ---------- */
+    .dark-mode {
+      --bg: #11191c;
+      --bg2: #1a2c32;
+      --text: #d7e6eb;
+      --text-muted: #9db6bd;
+      --card: #182429;
+      --input-bg: #243238;
+      --border: #2e4b52;
+    }
+
+    /* ---------- LIGHT MODE ---------- */
+    .light-mode {
+      --bg: #f3f7f9;
+      --bg2: #ffffff;
+      --text: #1b1f21;
+      --text-muted: #556166;
+      --card: #ffffff;
+      --input-bg: #ecf1f3;
+      --border: #c7d2d6;
+    }
+
+    /* ---------- BASE STYLES ---------- */
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: radial-gradient(800px 400px at 10% 10%, rgba(36,191,240,0.12), transparent 15%),
+                  radial-gradient(600px 300px at 90% 90%, rgba(36,191,240,0.10), transparent 12%),
+                  linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      color: var(--text);
+      font-family: "Inter", system-ui;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 960px;
+      background: var(--card);
+      border-radius: var(--rounded);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      overflow: hidden;
+      transition: background 0.3s ease;
+    }
+
+    /* ---------- PROMO SIDE ---------- */
+    .promo {
+      padding: 36px;
+      background: linear-gradient(180deg, rgba(36,191,240,0.10), rgba(36,191,240,0.05));
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 18px;
+      color: var(--text);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 22px;
+      font-weight: 600;
+    }
+
+    h1 { margin: 0; font-size: 26px; color: var(--text); text-align: center;}
+    p.lead { margin: 0; color: var(--text-muted); }
+
+    .teacher-tools-btn {
+      display: inline-block;
+      padding: 10px 18px;
+      background: linear-gradient(135deg, var(--brand), #1bb1e9);
+      color: white;
+      border-radius: 999px;
+      font-weight: 600;
+      text-decoration: none;
+      margin: 6px 0;
+      transition: 0.2s;
+      box-shadow: 0 3px 12px rgba(36,191,240,0.35);
+    }
+
+    .teacher-tools-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(36,191,240,0.55);
+    }
+
+    /* ---------- FORM SIDE ---------- */
+    .form-wrap {
+      padding: 28px 36px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 14px;
+      background: var(--bg2);
+      color: var(--text);
+      transition: background 0.3s ease;
+    }
+
+    .avatar {
+      width: 57px;
+      height: 56px;
+      border-radius: 14px;
+      background: linear-gradient(135deg,var(--brand),#1bb1e9);
+      display: grid;
+      place-items: center;
+      color: white;
+      font-weight: 700;
+      font-size: 20px;
+      box-shadow: 0 8px 22px rgba(36,191,240,0.25);
+    }
+
+    form { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+
+    .input {
+      background: var(--input-bg);
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      transition: 0.2s;
+    }
+
+    .input:focus-within {
+      border-color: var(--brand);
+      box-shadow: 0 0 10px rgba(36,191,240,0.18);
+    }
+
+    .input input {
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 15px;
+      width: 100%;
+    }
+
+    button {
+      background: var(--brand);
+      border: 0;
+      padding: 10px 16px;
+      border-radius: 10px;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    button:hover {
+      box-shadow: 0 0 16px rgba(36,191,240,0.35);
+      transform: translateY(-1px);
+    }
+
+    /* ---------- Toggle Button ---------- */
+    .toggle-btn {
+      width: 44px;
+      height: 24px;
+      border-radius: 50px;
+      border: 2px solid var(--border);
+      background: var(--input-bg);
+      position: relative;
+      cursor: pointer;
+      transition: 0.25s ease;
+    }
+
+    .toggle-btn::after {
+      content: "";
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--brand);
+      top: 2px;
+      left: 2px;
+      transition: 0.25s ease;
+    }
+
+    .light-mode .toggle-btn::after {
+      transform: translateX(20px);
+    }
+
+    @media (max-width: 900px) {
+      .card { grid-template-columns: 1fr; max-width: 420px; }
+      .promo { order: 2; text-align: center; }
+      .form-wrap { order: 1; }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="card" role="main">
+    <section class="promo">
+      <div class="logo">
+        <img src="{{ url_for('static', filename='ahs_logo.png') }}" alt="Academy High School Bank" style="height: 150px;">
+        <div>
+          <h1>Welcome to <br>Academy High School's Branch of Vex Bank</h1>
+        </div>
+      </div>
+      
+      <p class="lead">Learn money skills, manage your account, and compete in a hostile environment.</p>
+      <a href="/" class="teacher-tools-btn">Account Login</a>
+    </section>
+
+    <section class="form-wrap">
+      <button class="toggle-btn" id="theme-toggle"></button>
+
+      <div class="welcome">
+        <div class="avatar">&nbsp;&nbsp;Vex &nbsp;Bank</div>
+        <div>
+          <h2>Sign in to teacher tools</h2>
+          <p>Use your teacher login. Need help? Ask bank admin.</p>
+        </div>
+      </div>
+
+      <h1>Teacher Login</h1>
+
+      {% if error %}
+        <p class="error">{{ error }}</p>
+      {% endif %}
+
+      <form method="POST">
+        <div class="input"><input type="text" name="username" placeholder="Username" required></div>
+        <div class="input"><input type="password" name="password" placeholder="Password" required></div>
+        <button type="submit">Login</button>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const toggleBtn = document.getElementById("theme-toggle");
+    const root = document.getElementById("html-root");
+
+    function applyTheme(theme) {
+      if (theme === "light") {
+        root.classList.remove("dark-mode");
+        root.classList.add("light-mode");
+      } else {
+        root.classList.remove("light-mode");
+        root.classList.add("dark-mode");
+      }
+      void root.offsetWidth; /* force repaint */
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const saved = "{{ session.get('theme', 'dark') }}";
+      applyTheme(saved);
+    });
+
+    toggleBtn.addEventListener("click", async () => {
+      const r = await fetch("/toggle-theme", { method: "POST" });
+      if (r.ok) {
+        const data = await r.json();
+        applyTheme(data.theme);
+      }
+    });
+  </script>
+</body>
+</html>

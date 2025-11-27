@@ -261,6 +261,23 @@
     border-color: var(--brand);
 }
 
+.flash-message {
+    background-color: #ff4c4c;
+    color: white;
+    padding: 15px 20px;
+    border-radius: 12px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    box-shadow: 0 0 10px rgba(255, 76, 76, 0.6);
+    animation: flashPulse 1.5s infinite alternate;
+}
+
+@keyframes flashPulse {
+    0% { box-shadow: 0 0 10px rgba(255, 76, 76, 0.6); }
+    100% { box-shadow: 0 0 25px rgba(255, 76, 76, 1); }
+}
+
+
     </style>
 </head>
 
@@ -289,6 +306,20 @@
         <button class="toggle-btn" id="theme-toggle"></button>
     </div>
     <h1>Hey, {{ username }}!</h1>
+
+    <!-- Flash Messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div id="flash-messages" style="margin: 20px 0;">
+      {% for category, message in messages %}
+        <div class="flash-message {{ category }}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
 
         <!-- INFO CARDS -->
         <div class="info-row">
@@ -379,6 +410,17 @@
       applyTheme(data.theme);
     }
   });
+</script>
+<script>
+  // Fade out flash messages after 5 seconds
+  setTimeout(() => {
+    const flashContainer = document.getElementById("flash-messages");
+    if (flashContainer) {
+      flashContainer.style.transition = "opacity 1s ease";
+      flashContainer.style.opacity = "0";
+      setTimeout(() => flashContainer.remove(), 1000);
+    }
+  }, 5000);
 </script>
 </body>
 </html>
