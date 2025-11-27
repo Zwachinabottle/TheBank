@@ -141,6 +141,10 @@ def loan():
     return "Loan system coming soon!"
 
 
+@app.route("/teachertoolslogin")
+def teacher_tools_login():
+    return "Teacher Tools Page (Coming Soon)"
+
 @app.route("/teachertools")
 def teacher_tools():
     return "Teacher Tools Page (Coming Soon)"
