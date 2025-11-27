@@ -13,7 +13,15 @@ client = gspread.authorize(credentials)
 
 sheet = client.open("Bank-Info")
 users_sheet = sheet.worksheet("Users")
+loans_sheet = sheet.worksheet("Loans")
 transactions_sheet = sheet.worksheet("Transactions")
+# interest_sheet = sheet.worksheet("LoanRates")
+# interest_cell = interest_sheet.find("Rates")
+# if interest_cell:
+#     interest_rate = float(interest_cell.value)
+# else:
+#     interest_rate = 0.01 # default interest rate if not found
+# 
 interest_rate = 0.01
 
 # ---------- HELPERS ----------
@@ -156,7 +164,7 @@ def loan():
         flash("Loan Application Received!")
         return redirect(url_for("account"))
 
-    return render_template("loan.html")
+    return render_template("loan.html",username=session["user"],irate=interest_rate)
 
 @app.route("/teachertoolslogin")
 def teacher_tools_login():
