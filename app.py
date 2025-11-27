@@ -90,6 +90,68 @@ def loan_money(sender, reason, amount, weeks):
     weekly_payment = round(total_amount / weeks, 2)
     loans_sheet.append_row([sender, reason, amount, weeks, weekly_payment, "Pending", now])
 
+def role_required(*roles):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if "role" not in session or session["role"] not in roles:
+                flash("You don't have permission to access this page.", "error")
+                return redirect(url_for("account"))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+pending_loans = [
+    {"name":"John", "amount":50, "interest":10, "date":"2025-01-01 12:00",
+     "weekly":5, "weeks":10, "reason":"Need money for project"}
+]
+
+active_loans = [
+    {"name":"Sarah", "amount":120, "weekly":12, "time_remaining":4, "total_time":10}
+]
+
+def freeze_account(username):
+    cell = users_sheet.find(username)
+    header = users_sheet.row_values(1)
+    frozen_col = header.index("Frozen") + 1
+    users_sheet.update_cell(cell.row, frozen_col, "Yes")
+
+
+def unfreeze_account(username):
+    cell = users_sheet.find(username)
+    header = users_sheet.row_values(1)
+    frozen_col = header.index("Frozen") + 1
+    users_sheet.update_cell(cell.row, frozen_col, "No")
+
+
+def create_account(username, password):
+    # Username, Password, Balance, Frozen, Role
+    users_sheet.append_row([username, password, 0, "No", "Student"])
+
+def normalize_roles_column():
+    # Make sure the sheet has a Role column. If not, create it.
+    header = users_sheet.row_values(1)
+
+    if "Role" not in header:
+        users_sheet.update_cell(1, len(header) + 1, "Role")
+        header.append("Role")
+
+    # Get all data starting from row 2
+    all_data = users_sheet.get_all_records()
+
+    for idx, row in enumerate(all_data, start=2):  # row 2 onward
+        role = row.get("Role", "").strip()
+        if role == "":
+            users_sheet.update_cell(idx, header.index("Role") + 1, "Student")
+
+def is_frozen(username):
+    cell = users_sheet.find(username)
+    # Column 4 if your sheet layout is: Username | Password | Balance | Role | Frozen
+    # But safer to detect column index dynamically:
+    header = users_sheet.row_values(1)
+    frozen_col = header.index("Frozen") + 1
+    value = users_sheet.cell(cell.row, frozen_col).value
+    return str(value).strip().lower() == "yes"
 
 # ---------- ROUTES ----------
 @app.route("/", methods=["GET", "POST"])
