@@ -51,6 +51,7 @@
             flex: 1;
             background: var(--bg2);
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             font-size: 14px;
@@ -119,22 +120,19 @@
 
         /* ---------- LOAN BUTTON ---------- */
 
-        .loan-btn {
-            width: 100%;
-            padding: 16px;
-            margin: 25px 0;
-
-            background: linear-gradient(135deg,var(--brand), #1bb1e9);
-            border: 0;
-            border-radius: var(--rounded);
-            color: white;
-            font-size: 18px;
-            font-weight: 700;
+        .loan-btn{
+            padding: 8px 16px;
+            background: var(--brand);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: #ffffff;
+            font-size: 14px;
             cursor: pointer;
-
-            box-shadow: 0 4px 12px rgba(36,191,240,0.25);
-
             transition: 0.2s;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
         .loan-btn:hover {
@@ -244,9 +242,6 @@
 
         /* Logout Button */
 .logout-btn {
-    position: absolute;
-    top: 20px;
-    left: 20px;
     padding: 8px 16px;
     background: var(--input-bg);
     border: 1px solid var(--border);
@@ -270,18 +265,25 @@
 </head>
 
 <body>
-
     <div class="side-banner">
-    <a href="{{ url_for('loan') }}" class="loan-btn">
         <img src="{{ url_for('static', filename='banner.png') }}" alt="Funny Banner" style="height: 400px;">
-    </a>
+        <a href="{{ url_for('loan') }}" class="loan-btn">Apply Now!</a>
+        <div class="transaction-box">
+            <h2>Make a Transaction</h2>
+            <form method="POST" action="{{ url_for('transfer') }}">
+                <input type="text" name="receiver" placeholder="Receiver Username" required>
+                <input type="number" name="amount" placeholder="Amount" required>
+                <input type="text" name="comment" placeholder="Comment (optional)">
+                <button type="submit">Send Money</button>
+            </form>
+        </div>
+        <!-- Logout Button -->
+        <a href="{{ url_for('logout') }}" class="logout-btn">
+            Logout
+        </a>
     </div>
-
     <div class="center-column">
-    <!-- Logout Button -->
-    <a href="{{ url_for('logout') }}" class="logout-btn">
-         Logout
-    </a>
+
     <!-- Toggle Button -->
     <div class="toggle-container">
         <button class="toggle-btn" id="theme-toggle"></button>
@@ -311,15 +313,7 @@
         <div class="transaction-row">
 
             <!-- SEND MONEY -->
-<div class="transaction-box">
-    <h2>Make a Transaction</h2>
-    <form method="POST" action="{{ url_for('transfer') }}">
-        <input type="text" name="receiver" placeholder="Receiver Username" required>
-        <input type="number" name="amount" placeholder="Amount" required>
-        <input type="text" name="comment" placeholder="Comment (optional)">
-        <button type="submit">Send Money</button>
-    </form>
-</div>
+
 
 
             <!-- HISTORY -->

@@ -83,7 +83,7 @@ def transfer_money(sender, receiver, amount, comment):
 def loan_money(sender, reason, amount, weeks):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     total_amount = amount * (1 + float(interest_rate) * weeks) 
-    weekly_payment = total_amount / weeks
+    weekly_payment = round(total_amount / weeks, 2)
     loans_sheet.append_row([sender, reason, amount, weeks, weekly_payment, "Pending", now])
 
 
