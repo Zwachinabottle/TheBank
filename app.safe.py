@@ -13,7 +13,14 @@ client = gspread.authorize(credentials)
 
 sheet = client.open("Bank-Info")
 users_sheet = sheet.worksheet("Users")
+loans_sheet = sheet.worksheet("Loans")
 transactions_sheet = sheet.worksheet("Transactions")
+# interest_sheet = sheet.worksheet("LoanRates")
+# interest_cell = interest_sheet.find("Rates")
+# if interest_cell:
+#     interest_rate = float(interest_cell.value)
+# else:
+#     interest_rate = 0.01 # default interest rate if not found
 interest_rate = 0.01
 
 # ---------- HELPERS ----------
@@ -97,10 +104,9 @@ def login():
                 session["theme"] = "dark"
 
             return redirect(url_for("account"))
+    #return render_template("login.html")
+    return render_template('loan.html', username=session.get('user'), irate=interest_rate)
 
-        return render_template("login.html", error="Invalid credentials")
-
-    return render_template("login.html")
 
 
 @app.route("/account")
@@ -158,9 +164,6 @@ def loan():
 
     return render_template("loan.html")
 
-@app.route("/teachertoolslogin")
-def teacher_tools_login():
-    return "Teacher Tools Page (Coming Soon)"
 
 @app.route("/teachertools")
 def teacher_tools():
