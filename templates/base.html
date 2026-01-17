@@ -1,265 +1,138 @@
-<!DOCTYPE html>
-<html lang="en" class="{{ session.get('theme', 'dark') }}-mode">
+/* ---------- GLOBAL THEME VARIABLES ---------- */
+:root {
+    --brand: #24bff0;
 
-<head>
-    <meta charset="UTF-8" />
-    <title>{% block title %}{% endblock %}</title>
+    --bg: #11191c;
+    --bg2: #1a2c32;
+    --bg3: #182429;
+    --text: #d7e6eb;
+    --text-muted: #9db6bd;
+    --input-bg: #243238;
+    --border: #2e4b52;
 
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    --rounded: 14px;
+    --shadow-1: 0 6px 20px rgba(0,0,0,0.18);
+    --shadow-2: 0 10px 30px rgba(0,0,0,0.25);
+}
 
-    <style>
-        /* ---------- VARIABLES ---------- */
+/* ---------- LIGHT MODE OVERRIDES ---------- */
+.light-mode {
+    --bg: #e7eef2;
+    --bg2: #f5f8fa;
+    --bg3: #ffffff;
 
-        :root {
-            --brand: #24bff0;
+    --text: #1b1f21;
+    --text-muted: #556166;
+    --input-bg: #ecf1f3;
+    --border: #c7d2d6;
+}
 
-            --bg: #11191c;
-            --bg2: rgba(26, 44, 50, 0.55);
-            --bg3: rgba(24, 36, 41, 0.55); /* center blurred */
-            --text: #d7e6eb;
-            --text-muted: #9db6bd;
-            --input-bg: rgba(36, 50, 56, 0.65);
-            --border: #2e4b52;
+/* ---------- GLOBAL PAGE SETTINGS ---------- */
+html, body {
+    margin: 0;
+    font-family: "Inter", system-ui;
+    background: var(--bg);
+    color: var(--text);
+    transition: background 0.3s ease, color 0.3s ease;
+}
 
-            --rounded: 14px;
-            --blur: 18px;
-        }
+/* Scrollbars unified */
+::-webkit-scrollbar {
+    width: 10px;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 10px;
+}
 
-        .light-mode {
-            --bg: #e7eef2;
-            --bg2: rgba(245, 248, 250, 0.55);
-            --bg3: rgba(255, 255, 255, 0.65);
-            --text: #1b1f21;
-            --text-muted: #546166;
-            --input-bg: rgba(236, 241, 243, 0.7);
-            --border: #c7d2d6;
-        }
+/* ---------- CARDS ---------- */
+.card {
+    background: var(--bg2);
+    border-radius: var(--rounded);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-2);
+    padding: 20px;
+}
 
-        /* ---------- GLOBAL BACKGROUND (blur + glow) ---------- */
+/* ---------- BUTTONS ---------- */
+.btn, button {
+    background: var(--brand);
+    border: none;
+    padding: 10px 16px;
+    border-radius: 10px;
+    color: white;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 3px 12px rgba(36,191,240,0.35);
+    transition: 0.2s;
+}
 
-        body {
-            margin: 0;
-            height: 100vh;
-            font-family: Inter, system-ui;
-            display: flex;
-            overflow: hidden;
+.btn:hover, button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(36,191,240,0.55);
+}
 
-            background: var(--bg);
-            position: relative;
-        }
+/* ---------- INPUT FIELDS ---------- */
+input, select, textarea {
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    color: var(--text);
+    font-size: 15px;
+    width: 100%;
+    box-sizing: border-box;
+}
 
-        body::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: radial-gradient(circle at center,
-                rgba(36, 191, 240, 0.35),
-                transparent 60%);
-            filter: blur(80px);
-            z-index: 0;
-        }
+input::placeholder {
+    color: var(--text-muted);
+}
 
-        /* Everything on top */
-        .layer {
-            position: relative;
-            z-index: 2;
-            display: flex;
-            width: 100%;
-        }
+/* ---------- INFO / TRANSACTION BOXES ---------- */
+.info-card, .transaction-box, .simple-card {
+    background: var(--bg2);
+    padding: 20px;
+    border-radius: var(--rounded);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-1);
+}
 
-        /* ---------- LAYOUT ---------- */
+.history-box {
+    overflow-y: auto;
+    padding-right: 10px;
+}
 
-        .side-banner {
-            flex: 1;
-            backdrop-filter: blur(var(--blur));
-            background: var(--bg2);
-            border-right: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-muted);
-            font-size: 14px;
-        }
+/* ---------- TOGGLE (LIGHT/DARK) ---------- */
+.toggle-btn {
+    width: 44px;
+    height: 24px;
+    border-radius: 50px;
+    border: 2px solid var(--border);
+    background: var(--input-bg);
+    position: relative;
+    cursor: pointer;
+    transition: 0.25s ease;
+}
 
-        .side-banner:last-of-type {
-            border-right: none;
-            border-left: 1px solid var(--border);
-        }
+.toggle-btn::after {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--brand);
+    top: 2px;
+    left: 2px;
+    transition: 0.25s ease;
+}
 
-        .center-column {
-            flex: 5;
-            padding: 35px;
-            height: 100vh;
-            overflow-y: auto;
+.light-mode .toggle-btn::after {
+    transform: translateX(20px);
+}
 
-            backdrop-filter: blur(var(--blur));
-            background: var(--bg3);
-
-            border-left: 1px solid var(--border);
-            border-right: 1px solid var(--border);
-
-            box-shadow:
-                0 0 20px rgba(0,0,0,0.25),
-                0 0 60px rgba(0,0,0,0.15);
-        }
-
-        /* ---------- HEADER ELEMENTS ---------- */
-
-        .top-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .logo-area img {
-            height: 55px;
-            border-radius: 10px;
-        }
-
-        .top-buttons {
-            display: flex;
-            gap: 12px;
-        }
-
-        .nav-btn {
-            padding: 10px 16px;
-            border-radius: 10px;
-            background: var(--input-bg);
-            border: 1px solid var(--border);
-            color: var(--text);
-            font-weight: 600;
-            text-decoration: none;
-            transition: 0.2s;
-        }
-
-        .nav-btn:hover {
-            background: rgba(36,191,240,0.25);
-            border-color: var(--brand);
-        }
-
-        /* ---------- TOGGLE SWITCH (thinner) ---------- */
-
-        .toggle-btn {
-            width: 40px;
-            height: 20px;
-            border-radius: 50px;
-            border: 1px solid var(--border);
-            background: var(--input-bg);
-            position: relative;
-            cursor: pointer;
-            transition: 0.25s ease;
-        }
-
-        .toggle-btn::after {
-            content: "";
-            position: absolute;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: var(--brand);
-            top: 2px;
-            left: 2px;
-            transition: 0.25s ease;
-        }
-
-        .light-mode .toggle-btn::after {
-            transform: translateX(20px);
-        }
-
-        /* ---------- FORM INPUTS (same size) ---------- */
-
-        input[type="text"],
-        input[type="password"],
-        input[type="number"] {
-            width: 100%;
-            padding: 12px;
-            background: var(--input-bg);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            color: var(--text);
-            font-size: 15px;
-            box-sizing: border-box;
-        }
-
-        input::placeholder {
-            color: var(--text-muted);
-        }
-    </style>
-
-</head>
-
-<body>
-
-<div class="layer">
-
-    <!-- LEFT BANNER -->
-    <div class="side-banner">
-        <img src="{{ url_for('static', filename='banner.png') }}" style="height:400px;">
-    </div>
-
-    <!-- CENTER COLUMN -->
-    <div class="center-column">
-
-        <div class="top-bar">
-
-            <!-- LEFT: Logo -->
-            <div class="logo-area">
-                <img src="{{ url_for('static', filename='ahs_logo.jpg') }}" alt="School Logo">
-            </div>
-
-            <!-- RIGHT: Buttons -->
-            <div class="top-buttons">
-
-                <a href="{{ url_for('teacher_tools_login') }}" class="nav-btn">
-                    Teacher Tools
-                </a>
-
-                <a href="#" class="nav-btn">
-                    Vex Investments
-                </a>
-
-                <button class="toggle-btn" id="theme-toggle"></button>
-
-            </div>
-        </div>
-
-        {% block content %}
-        {% endblock %}
-
-    </div>
-
-    <!-- RIGHT BANNER -->
-    <div class="side-banner">Funny Banner</div>
-
-</div>
-
-<!-- ---------- THEME JS ---------- -->
-<script>
-    const toggleBtn = document.getElementById("theme-toggle");
-
-    function applyTheme(theme) {
-        if (theme === "light") {
-            document.documentElement.classList.remove("dark-mode");
-            document.documentElement.classList.add("light-mode");
-        } else {
-            document.documentElement.classList.remove("light-mode");
-            document.documentElement.classList.add("dark-mode");
-        }
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-        const saved = "{{ session.get('theme', 'dark') }}";
-        applyTheme(saved);
-    });
-
-    toggleBtn.addEventListener("click", async () => {
-        const r = await fetch("/toggle-theme", { method: "POST" });
-        if (r.ok) {
-            const data = await r.json();
-            applyTheme(data.theme);
-        }
-    });
-</script>
-
-</body>
-</html>
+/* ---------- UTILITY CLASSES ---------- */
+.text-muted { color: var(--text-muted); }
+.center { text-align: center; }
+.rounded { border-radius: var(--rounded); }
+.shadow-1 { box-shadow: var(--shadow-1); }
+.shadow-2 { box-shadow: var(--shadow-2); }

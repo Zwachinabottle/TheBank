@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode">
+<head>
+  <meta charset="UTF-8">
+  <title>Federal Reserve</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* ---------- NAV BUTTONS ---------- */
+.nav-button {
+  position: fixed;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--text);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  transition: all 0.2s ease;
+  z-index: 1000;
+}
+
+.nav-button:hover {
+  background: var(--bg3);
+  transform: translateY(-2px);
+}
+
+/* Positions */
+.nav-teacher {
+  top: 24px;
+  left: 24px;
+}
+
+.nav-account {
+  top: 24px;
+  right: 24px;
+}
+
+.nav-login {
+  bottom: 24px;
+  right: 24px;
+}
+    /* ---------- THEME VARIABLES ---------- */
+    :root {
+      --brand: #24bff0;
+
+      --bg: #11191c;
+      --bg2: #1a2c32;
+      --bg3: #182429;
+      --text: #d7e6eb;
+      --text-muted: #9db6bd;
+      --border: #2e4b52;
+
+      --rounded: 14px;
+    }
+
+    .light-mode {
+      --bg: #e7eef2;
+      --bg2: #f5f8fa;
+      --bg3: #ffffff;
+      --text: #1b1f21;
+      --text-muted: #556166;
+      --border: #c7d2d6;
+    }
+
+    /* ---------- BASE ---------- */
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Inter", system-ui;
+      color: var(--text);
+
+      background:
+        radial-gradient(800px 400px at 15% 10%, rgba(36,191,240,0.18), transparent 40%),
+        radial-gradient(600px 300px at 85% 90%, rgba(36,191,240,0.14), transparent 35%),
+        linear-gradient(180deg, var(--bg), var(--bg3));
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ---------- CARD ---------- */
+    .reserve-card {
+      width: 100%;
+      max-width: 900px;
+      padding: 40px;
+      border-radius: 18px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 24px;
+      text-align: center;
+    }
+
+    /* ---------- SLIDER ---------- */
+    .slider {
+      overflow: hidden;
+    }
+
+    .slide {
+      display: none;
+      text-align: center;
+    }
+
+    .slide.active {
+      display: block;
+    }
+
+    /* ---------- PIG VISUAL ---------- */
+   .pig-container {
+  width: 420px;
+  height: 420px;
+  margin: 40px auto;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* GOLD LIQUID */
+.pig-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 50%; /* TEMP test value, see sanity check below */
+
+  background: linear-gradient(
+    180deg,
+    #ffe08a 0%,
+    #e6b94a 60%,
+    #b8891b 100%
+  );
+
+  transition: height 0.9s ease;
+  z-index: 1;
+
+  -webkit-mask-image: url("/static/PiggyBankMask.png");
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  -webkit-mask-mode: luminance;
+
+  mask-image: url("/static/PiggyBankMask.png");
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+  mask-mode: luminance;
+}
+
+/* OUTLINE ON TOP */
+.pig-outline {
+  width: 100%;
+  position: relative;
+  z-index: 2;
+  pointer-events: none;
+}
+
+
+    .reserve-amount {
+      font-size: 22px;
+      font-weight: 600;
+      margin-top: 12px;
+    }
+
+    /* ---------- STATS ---------- */
+    .stats-box {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--rounded);
+      padding: 24px;
+      max-width: 420px;
+      margin: 20px auto 0;
+    }
+
+    .stat-line {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 15px;
+    }
+
+    .stat-line:last-child {
+      border-bottom: none;
+    }
+
+    /* ---------- NAV ---------- */
+    .slider-nav {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+      cursor: pointer;
+    }
+
+    .dot.active {
+      background: var(--brand);
+    }
+  </style>
+</head>
+
+<body>
+  <a href="/teacher-tools" class="nav-button nav-teacher">
+  Teacher Tools
+</a>
+
+<a href="/account" class="nav-button nav-account">
+  Account
+</a>
+
+<main class="reserve-card">
+  <div class="slider">
+
+    <!-- SLIDE 1: PIG -->
+    <section class="slide active">
+      <h2>Federal Reserves</h2>
+
+     <div class="pig-container">
+  <svg viewBox="0 0 100 100" width="100%" height="100%">
+    
+    <!-- MASK -->
+    <defs>
+      <mask id="pigMask">
+        <image
+          href="{{ url_for('static', filename='PiggyBankMask.png') }}"
+          x="0"
+          y="0"
+          width="100"
+          height="100"
+          preserveAspectRatio="xMidYMid meet"
+        />
+      </mask>
+    </defs>
+
+    <!-- GOLD FILL -->
+    <rect
+      x="0"
+      y="{{ 100 - ([((data.Reserves|float / data.Total|float) * 100), 100] | min) }}"
+      width="100"
+      height="{{ [((data.Reserves|float / data.Total|float) * 100), 100] | min }}"
+      fill="url(#goldGradient)"
+      mask="url(#pigMask)"
+    />
+
+    <!-- GOLD GRADIENT -->
+    <defs>
+      <linearGradient id="goldGradient" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#ffe08a"/>
+        <stop offset="60%" stop-color="#e6b94a"/>
+        <stop offset="100%" stop-color="#b8891b"/>
+      </linearGradient>
+    </defs>
+
+    <!-- OUTLINE -->
+    <image
+      href="{{ url_for('static', filename='PiggyBankGlass.png') }}"
+      x="0"
+      y="0"
+      width="100"
+      height="100"
+      preserveAspectRatio="xMidYMid meet"
+    />
+  </svg>
+</div>
+      <div class="reserve-amount">
+        ${{ data.Reserves }} held in reserve
+      </div>
+    </section>
+
+    <!-- SLIDE 2: STATS -->
+    <section class="slide">
+      <h2>System Overview</h2>
+
+      <div class="stats-box">
+        <div class="stat-line"><span>Total Money</span><span>${{ data.Total }}</span></div>
+        <div class="stat-line"><span>Reserves</span><span>${{ data.Reserves }}</span></div>
+        <div class="stat-line"><span>Liquidity</span><span>${{ data.Liquidity }}</span></div>
+        <div class="stat-line"><span>Loaned</span><span>${{ data.Loaned }}</span></div>
+        <div class="stat-line"><span>Student Funds</span><span>${{ data.Student }}</span></div>
+        <div class="stat-line"><span>Teacher Funds</span><span>${{ data.Teacher }}</span></div>
+        <div class="stat-line"><span>Cash Removed</span><span>${{ data.Cash }}</span></div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- DOT NAV -->
+  <div class="slider-nav">
+    <span class="dot active"></span>
+    <span class="dot"></span>
+  </div>
+</main>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const slides = document.querySelectorAll(".slide");
+  const dots = document.querySelectorAll(".dot");
+
+  dots.forEach((dot, i) => {
+    dot.addEventListener("click", () => {
+      slides.forEach(s => s.classList.remove("active"));
+      dots.forEach(d => d.classList.remove("active"));
+
+      slides[i].classList.add("active");
+      dots[i].classList.add("active");
+    });
+  });
+});
+</script>
+
+</body>
+</html>

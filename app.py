@@ -9,23 +9,43 @@ app.secret_key = "your_secret_key_here"
 
 # ---------- GOOGLE SHEETS SETUP ----------
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_name("cred.json", scope)
+credentials = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(credentials)
 
 sheet = client.open("Bank-Info")
 users_sheet = sheet.worksheet("Users")
-loans_sheet = sheet.worksheet("Loans")
 transactions_sheet = sheet.worksheet("Transactions")
-# interest_sheet = sheet.worksheet("LoanRates")
-# interest_cell = interest_sheet.find("Rates")
-# if interest_cell:
-#     interest_rate = float(interest_cell.value)
-# else:
-#     interest_rate = 0.01 # default interest rate if not found
-# 
-interest_rate = 0.01
+fed_sheet = sheet.worksheet("Reserve")
+loans_sheet = sheet.worksheet("Loans")
+# Ensure sheet has required columns
+header = users_sheet.row_values(1)
+
+required_headers = ["Username", "Password", "Balance", "Frozen", "Role"]
+
+if header != required_headers:
+    # Reset header row (preserves data if columns existed)
+    users_sheet.delete_rows(1)
+    users_sheet.insert_row(required_headers, 1)
+    
+
+
 
 # ---------- HELPERS ----------
+def get_interest_rate():
+    data = get_federal_reserve_stats()
+
+    try:
+        total = float(data.get("Total", 0))
+        liquidity = float(data.get("Liquidity", 0))
+
+        if total <= 0:
+            return 0.0
+
+        # Interest formula
+        return (liquidity / total) * 0.05
+
+    except ValueError:
+        return 0.0
 def get_all_users():
     return users_sheet.get_all_records()
 
@@ -83,12 +103,6 @@ def transfer_money(sender, receiver, amount, comment):
 
     add_transaction(sender, receiver, amount, comment)
     return True
-
-def loan_money(sender, reason, amount, weeks):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    total_amount = amount * (1 + float(interest_rate) * weeks) 
-    weekly_payment = round(total_amount / weeks, 2)
-    loans_sheet.append_row([sender, reason, amount, weeks, weekly_payment, "Pending", now])
 
 def role_required(*roles):
     def decorator(f):
@@ -152,6 +166,104 @@ def is_frozen(username):
     frozen_col = header.index("Frozen") + 1
     value = users_sheet.cell(cell.row, frozen_col).value
     return str(value).strip().lower() == "yes"
+
+def ensure_fed_sheet():
+    required_headers = [
+        "Total",
+        "Reserves",
+        "Student",
+        "Teacher",
+        "Liquidity",
+        "Cash",
+        "Loaned",
+        "Last Updated"
+    ]
+
+    existing_headers = fed_sheet.row_values(1)
+
+    # If header row is empty, write full header
+    if not existing_headers:
+        fed_sheet.insert_row(required_headers, 1)
+        fed_sheet.insert_row([""] * len(required_headers), 2)
+        return
+
+    # Add missing headers (append to the right)
+    for header in required_headers:
+        if header not in existing_headers:
+            fed_sheet.update_cell(
+                1,
+                len(existing_headers) + 1,
+                header
+            )
+            existing_headers.append(header)
+
+    # Ensure row 2 exists
+    if len(fed_sheet.get_all_values()) < 2:
+        fed_sheet.insert_row([""] * len(existing_headers), 2)
+ensure_fed_sheet()
+
+def get_fed_columns():
+    header = fed_sheet.row_values(1)
+    return {name: idx + 1 for idx, name in enumerate(header)}
+
+    
+def set_fed_value(label, value):
+    cols = get_fed_columns()
+    if label not in cols:
+        return
+    fed_sheet.update_cell(2, cols[label], value)
+
+
+def get_federal_reserve_stats():
+    cols = get_fed_columns()
+    values = fed_sheet.row_values(2)
+
+    data = {}
+    for key, col in cols.items():
+        if col - 1 < len(values):
+            data[key] = values[col - 1]
+        else:
+            data[key] = ""
+    return data
+
+
+
+def recalculate_federal_reserve():
+    users = get_all_users_with_balances()
+
+    total = 0
+    student_money = 0
+    teacher_money = 0
+
+    for u in users:
+        balance = float(u["Balance"])
+        total += balance
+
+        if u.get("Role") == "Student":
+            student_money += balance
+        elif u.get("Role") in ["Teacher", "Banker"]:
+            teacher_money += balance
+    
+    cash = 1     # example rule needs to be determined
+    reserves = round(total - (student_money+teacher_money+cash), 2)
+    liquidity = round(total - ((student_money*.1)+(teacher_money*.1)), 2) #add cash later
+    loaned = round(total - reserves, 2) # example rule needs to be calculated by some method
+
+    set_fed_value("Total", total)
+    set_fed_value("Reserves", reserves)
+    set_fed_value("Student", student_money)
+    set_fed_value("Teacher", teacher_money)
+    set_fed_value("Liquidity", liquidity)
+    set_fed_value("Cash", cash)
+    set_fed_value("Loaned", loaned)
+    set_fed_value("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M"))
+
+def loan_money(sender, reason, amount, weeks):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    interest_rate = get_interest_rate()
+    total_amount = amount * (1 + interest_rate * weeks)
+    weekly_payment = round(total_amount / weeks, 2)
+    loans_sheet.append_row([sender, reason, amount, weeks, weekly_payment, "Pending", now])
 
 # ---------- ROUTES ----------
 @app.route("/", methods=["GET", "POST"])
@@ -238,6 +350,7 @@ def logout():
 def loan():
     if "user" not in session:
         return redirect(url_for("login"))
+    interest_rate = get_interest_rate()
 
     if request.method == "POST":
         sender = session["user"]
@@ -249,6 +362,7 @@ def loan():
         return redirect(url_for("account"))
 
     return render_template("loan.html",username=session["user"],irate=interest_rate)
+
 
 @app.route("/teachertoolslogin", methods=["GET", "POST"])
 def teacher_tools_login():
@@ -326,6 +440,12 @@ def create_account_route():
     flash("Account created successfully!")
     return redirect(url_for("teacher_tools"))
 
+@app.route("/federalreserve")
+@role_required("Banker")
+def federal_reserve():
+    recalculate_federal_reserve()
+    data = get_federal_reserve_stats()
+    return render_template("federalreserve.html", data=data)
 
 
 # ---------- THEME TOGGLE API ----------
@@ -336,8 +456,6 @@ def toggle_theme():
     new = "light" if current == "dark" else "dark"
     session["theme"] = new
     return jsonify({"theme": new})
-
-
 
 if __name__ == "__main__":
     app.run(debug=True)

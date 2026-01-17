@@ -8,6 +8,42 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
   <style>
+    /* ---------- MODAL ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal-overlay.active {
+  display: flex;
+}
+
+.modal {
+  background: var(--bg3);
+  padding: 28px;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 420px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+.modal-close {
+  margin-top: 16px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+}
+
     :root{
       --brand: #24bff0;
       --accent: #1bb1e9;
@@ -163,7 +199,21 @@
   </style>
 </head>
 <body>
+  <!-- TRANSACTION MODAL -->
+<div class="modal-overlay" id="transactionModal">
+  <div class="modal">
+    <h2>Make a Transaction</h2>
 
+    <form method="POST" action="{{ url_for('transfer') }}">
+      <input type="text" name="receiver" placeholder="Receiver Username" required>
+      <input type="number" name="amount" placeholder="Amount" required>
+      <input type="text" name="comment" placeholder="Comment (optional)">
+      <button type="submit">Send Money</button>
+    </form>
+
+    <button class="modal-close" onclick="closeTransaction()">Cancel</button>
+  </div>
+</div>
   <!-- left decorative banner -->
     <div class="side-banner">
     <a href="{{ url_for('loan') }}" class="loan-btn">
