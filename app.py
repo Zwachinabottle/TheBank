@@ -1,3 +1,4 @@
+from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -8,24 +9,47 @@ app.secret_key = "your_secret_key_here"
 
 # ---------- GOOGLE SHEETS SETUP ----------
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_name("cred.json", scope)
+credentials = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(credentials)
 
 sheet = client.open("Bank-Info")
 users_sheet = sheet.worksheet("Users")
-loans_sheet = sheet.worksheet("Loans")
 transactions_sheet = sheet.worksheet("Transactions")
-# interest_sheet = sheet.worksheet("LoanRates")
-# interest_cell = interest_sheet.find("Rates")
-# if interest_cell:
-#     interest_rate = float(interest_cell.value)
-# else:
-#     interest_rate = 0.01 # default interest rate if not found
-# 
-interest_rate = 0.01
+fed_sheet = sheet.worksheet("Reserve")
+loans_sheet = sheet.worksheet("Loans")
+# Ensure sheet has required columns
+header = users_sheet.row_values(1)
+
+required_headers = ["Username", "Password", "Balance", "Frozen", "Role"]
+
+if header != required_headers:
+    # Reset header row (preserves data if columns existed)
+    users_sheet.delete_rows(1)
+    users_sheet.insert_row(required_headers, 1)
+    
+
+
 
 # ---------- HELPERS ----------
+def get_interest_rate():
+    data = get_federal_reserve_stats()
+
+    try:
+        total = float(data.get("Total", 0))
+        liquidity = float(data.get("Liquidity", 0))
+
+        if total <= 0:
+            return 0.0
+
+        # Interest formula
+        return (liquidity / total) * 0.05
+
+    except ValueError:
+        return 0.0
 def get_all_users():
+    return users_sheet.get_all_records()
+
+def get_all_users_with_balances():
     return users_sheet.get_all_records()
 
 
@@ -80,12 +104,166 @@ def transfer_money(sender, receiver, amount, comment):
     add_transaction(sender, receiver, amount, comment)
     return True
 
+def role_required(*roles):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if "role" not in session or session["role"] not in roles:
+                flash("You don't have permission to access this page.", "error")
+                return redirect(url_for("account"))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+pending_loans = [
+    {"name":"John", "amount":50, "interest":10, "date":"2025-01-01 12:00",
+     "weekly":5, "weeks":10, "reason":"Need money for project"}
+]
+
+active_loans = [
+    {"name":"Sarah", "amount":120, "weekly":12, "time_remaining":4, "total_time":10}
+]
+
+def freeze_account(username):
+    cell = users_sheet.find(username)
+    header = users_sheet.row_values(1)
+    frozen_col = header.index("Frozen") + 1
+    users_sheet.update_cell(cell.row, frozen_col, "Yes")
+
+
+def unfreeze_account(username):
+    cell = users_sheet.find(username)
+    header = users_sheet.row_values(1)
+    frozen_col = header.index("Frozen") + 1
+    users_sheet.update_cell(cell.row, frozen_col, "No")
+
+
+def create_account(username, password):
+    # Username, Password, Balance, Frozen, Role
+    users_sheet.append_row([username, password, 0, "No", "Student"])
+
+def normalize_roles_column():
+    # Make sure the sheet has a Role column. If not, create it.
+    header = users_sheet.row_values(1)
+
+    if "Role" not in header:
+        users_sheet.update_cell(1, len(header) + 1, "Role")
+        header.append("Role")
+
+    # Get all data starting from row 2
+    all_data = users_sheet.get_all_records()
+
+    for idx, row in enumerate(all_data, start=2):  # row 2 onward
+        role = row.get("Role", "").strip()
+        if role == "":
+            users_sheet.update_cell(idx, header.index("Role") + 1, "Student")
+
+def is_frozen(username):
+    cell = users_sheet.find(username)
+    # Column 4 if your sheet layout is: Username | Password | Balance | Role | Frozen
+    # But safer to detect column index dynamically:
+    header = users_sheet.row_values(1)
+    frozen_col = header.index("Frozen") + 1
+    value = users_sheet.cell(cell.row, frozen_col).value
+    return str(value).strip().lower() == "yes"
+
+def ensure_fed_sheet():
+    required_headers = [
+        "Total",
+        "Reserves",
+        "Student",
+        "Teacher",
+        "Liquidity",
+        "Cash",
+        "Loaned",
+        "Last Updated"
+    ]
+
+    existing_headers = fed_sheet.row_values(1)
+
+    # If header row is empty, write full header
+    if not existing_headers:
+        fed_sheet.insert_row(required_headers, 1)
+        fed_sheet.insert_row([""] * len(required_headers), 2)
+        return
+
+    # Add missing headers (append to the right)
+    for header in required_headers:
+        if header not in existing_headers:
+            fed_sheet.update_cell(
+                1,
+                len(existing_headers) + 1,
+                header
+            )
+            existing_headers.append(header)
+
+    # Ensure row 2 exists
+    if len(fed_sheet.get_all_values()) < 2:
+        fed_sheet.insert_row([""] * len(existing_headers), 2)
+ensure_fed_sheet()
+
+def get_fed_columns():
+    header = fed_sheet.row_values(1)
+    return {name: idx + 1 for idx, name in enumerate(header)}
+
+    
+def set_fed_value(label, value):
+    cols = get_fed_columns()
+    if label not in cols:
+        return
+    fed_sheet.update_cell(2, cols[label], value)
+
+
+def get_federal_reserve_stats():
+    cols = get_fed_columns()
+    values = fed_sheet.row_values(2)
+
+    data = {}
+    for key, col in cols.items():
+        if col - 1 < len(values):
+            data[key] = values[col - 1]
+        else:
+            data[key] = ""
+    return data
+
+
+
+def recalculate_federal_reserve():
+    users = get_all_users_with_balances()
+
+    total = 0
+    student_money = 0
+    teacher_money = 0
+
+    for u in users:
+        balance = float(u["Balance"])
+        total += balance
+
+        if u.get("Role") == "Student":
+            student_money += balance
+        elif u.get("Role") in ["Teacher", "Banker"]:
+            teacher_money += balance
+    
+    cash = 1     # example rule needs to be determined
+    reserves = round(total - (student_money+teacher_money+cash), 2)
+    liquidity = round(total - ((student_money*.1)+(teacher_money*.1)), 2) #add cash later
+    loaned = round(total - reserves, 2) # example rule needs to be calculated by some method
+
+    set_fed_value("Total", total)
+    set_fed_value("Reserves", reserves)
+    set_fed_value("Student", student_money)
+    set_fed_value("Teacher", teacher_money)
+    set_fed_value("Liquidity", liquidity)
+    set_fed_value("Cash", cash)
+    set_fed_value("Loaned", loaned)
+    set_fed_value("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M"))
+
 def loan_money(sender, reason, amount, weeks):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    total_amount = amount * (1 + float(interest_rate) * weeks) 
+    interest_rate = get_interest_rate()
+    total_amount = amount * (1 + interest_rate * weeks)
     weekly_payment = round(total_amount / weeks, 2)
     loans_sheet.append_row([sender, reason, amount, weeks, weekly_payment, "Pending", now])
-
 
 # ---------- ROUTES ----------
 @app.route("/", methods=["GET", "POST"])
@@ -99,6 +277,7 @@ def login():
 
         if user:
             session["user"] = username
+            session["role"] = user.get("Role", "Student")  # Default to Student if Role is missing
 
             # set default theme
             if "theme" not in session:
@@ -136,12 +315,29 @@ def transfer():
     amount = float(request.form["amount"])
     comment = request.form.get("comment", "No comment")
 
+    # Check if sender or receiver is frozen
+    sender_frozen = is_frozen(sender)
+    receiver_frozen = is_frozen(receiver)
+
+    if sender_frozen:
+        flash("Your account is frozen", "error")
+        flash("Sending and Receiving money is disabled", "error")
+        return redirect(url_for("account"))
+
+    if receiver_frozen:
+        # No separate "Your account" message here because it’s receiver’s account frozen
+        flash("Sending and Receiving money is disabled", "error")
+        return redirect(url_for("account"))
+
+    # Proceed with normal transfer if neither frozen
     if transfer_money(sender, receiver, amount, comment):
         flash("Transfer successful!")
     else:
         flash("Insufficient balance!")
 
     return redirect(url_for("account"))
+
+
 
 
 @app.route("/logout")
@@ -154,6 +350,7 @@ def logout():
 def loan():
     if "user" not in session:
         return redirect(url_for("login"))
+    interest_rate = get_interest_rate()
 
     if request.method == "POST":
         sender = session["user"]
@@ -166,13 +363,89 @@ def loan():
 
     return render_template("loan.html",username=session["user"],irate=interest_rate)
 
-@app.route("/teachertoolslogin")
+
+@app.route("/teachertoolslogin", methods=["GET", "POST"])
 def teacher_tools_login():
-    return "Teacher Tools Page (Coming Soon)"
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+
+        users = get_all_users()
+        user = next((u for u in users if u["Username"] == username and u["Password"] == password), None)
+
+        if user:
+            session["user"] = username
+            session["role"] = user.get("Role", "Student")  # Default to Student if Role is missing
+            
+            if session["role"] in ["Teacher", "Banker"]:
+
+                # set default theme
+                if "theme" not in session:
+                    session["theme"] = "dark"
+
+                return redirect(url_for("teacher_tools"))
+
+        return render_template("teachertoolslogin.html", error="Invalid credentials")
+
+    return render_template("teachertoolslogin.html")
 
 @app.route("/teachertools")
+@role_required("Teacher", "Banker")
 def teacher_tools():
-    return "Teacher Tools Page (Coming Soon)"
+    if "user" not in session:
+        return redirect(url_for("teacher_tools_login"))
+
+    username = session["user"]
+    users = get_all_users_with_balances()
+
+    normalize_roles_column()
+    
+    return render_template(
+    "teachertools.html",
+    users=users,
+    username=username,
+    pending_loans=pending_loans,
+    active_loans=active_loans
+)
+
+@app.post("/freeze_account")
+@role_required("Teacher", "Banker")
+def freeze_account_route():
+    username = request.form["username"]
+    freeze_account(username)
+    flash(f"{username} has been frozen.")
+    return redirect(url_for("teacher_tools"))
+
+@app.post("/unfreeze_account")
+@role_required("Teacher", "Banker")
+def unfreeze_account_route():
+    username = request.form["username"]
+    unfreeze_account(username)
+    flash(f"{username} has been unfrozen.")
+    return redirect(url_for("teacher_tools"))
+
+@app.post("/create_account")
+@role_required("Teacher", "Banker")
+def create_account_route():
+    username = request.form["new_username"]
+    password = request.form["new_password"]
+
+    # Prevent duplicates
+    users = get_all_users()
+    if any(u["Username"] == username for u in users):
+        flash("Username already exists.")
+        return redirect(url_for("teacher_tools"))
+
+    create_account(username, password)
+    flash("Account created successfully!")
+    return redirect(url_for("teacher_tools"))
+
+@app.route("/federalreserve")
+@role_required("Banker")
+def federal_reserve():
+    recalculate_federal_reserve()
+    data = get_federal_reserve_stats()
+    return render_template("federalreserve.html", data=data)
 
 
 # ---------- THEME TOGGLE API ----------
@@ -183,8 +456,6 @@ def toggle_theme():
     new = "light" if current == "dark" else "dark"
     session["theme"] = new
     return jsonify({"theme": new})
-
-
 
 if __name__ == "__main__":
     app.run(debug=True)

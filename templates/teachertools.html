@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Teacher Tools</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --brand: #24bff0;
+
+            --bg: #11191c;
+            --bg2: #1a2c32;
+            --bg3: #182429;
+            --text: #d7e6eb;
+            --text-muted: #9db6bd;
+            --input-bg: #243238;
+            --border: #2e4b52;
+
+            --rounded: 14px;
+        }
+
+        .light-mode {
+            --bg: #e7eef2;
+            --bg2: #f5f8fa;
+            --bg3: #ffffff;
+            --text: #1b1f21;
+            --text-muted: #556166;
+            --input-bg: #ecf1f3;
+            --border: #c7d2d6;
+        }
+
+        /* Layout */
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Inter", system-ui;
+
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .side-banner {
+            flex: 1;
+            background: var(--bg2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-right: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+
+        .side-banner:last-of-type {
+            border-left: 1px solid var(--border);
+            border-right: none;
+        }
+
+        .center-column {
+            flex: 5;
+            max-width: 1200px;
+            margin: auto;
+
+            background: var(--bg3);
+            padding: 35px;
+            height: 100vh;
+            overflow-y: auto;
+
+            border-left: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+        }
+
+        /* Buttons & tables */
+        .action-btn {
+            padding: 5px 10px;
+            font-size: 13px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            cursor: pointer;
+            margin-right: 4px;
+        }
+
+        .box {
+            background: var(--bg2);
+            padding: 20px;
+            border-radius: var(--rounded);
+            margin-bottom: 30px;
+            border: 1px solid var(--border);
+        }
+
+        table {
+            width: 100%;
+            border-spacing: 0 6px;
+        }
+
+        td {
+            padding: 6px;
+        }
+
+        /* Create account button */
+        .create-account-btn {
+            width: 100%;
+            padding: 12px;
+            background: var(--brand);
+            color: white;
+            border: none;
+            border-radius: var(--rounded);
+            cursor: pointer;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+
+        /* Modal popup */
+        .modal-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+
+        .modal-box {
+            background: var(--bg2);
+            padding: 25px;
+            border-radius: var(--rounded);
+            width: 350px;
+            border: 1px solid var(--border);
+        }
+
+        .modal-box input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 12px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+        }
+
+        .modal-box button {
+            width: 100%;
+            padding: 12px;
+            background: var(--brand);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close-modal {
+            background: #d9534f;
+            margin-top: 10px;
+        }
+
+        /* Toggle */
+        .toggle-btn {
+            width: 44px;
+            height: 24px;
+            border-radius: 50px;
+            border: 2px solid var(--border);
+            background: var(--input-bg);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .toggle-btn::after {
+            content: "";
+            width: 18px;
+            height: 18px;
+            background: var(--brand);
+            border-radius: 50%;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            transition: 0.25s;
+        }
+
+        .light-mode .toggle-btn::after {
+            transform: translateX(20px);
+        }
+
+        /* Logout */
+        .logout-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            padding: 8px 15px;
+            border-radius: 10px;
+            text-decoration: none;
+            color: var(--text);
+        }
+
+    </style>
+</head>
+
+<body>
+
+<div class="side-banner">Banner</div>
+
+<div class="center-column">
+
+    <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+
+    <div style="text-align:right;">
+        <button id="theme-toggle" class="toggle-btn"></button>
+    </div>
+
+    <h1 style="text-align:center;">Teacher Tools</h1>
+
+    <!-- ACCOUNTS BOX -->
+    <div class="box">
+        <h2>Accounts</h2>
+
+        <table>
+            {% for u in users %}
+            {% if u["Role"] == "Student" %}
+            <tr>
+                <td><b>{{ u["Username"] }}</b></td>
+                <td>${{ "%.2f"|format(u["Balance"]) }}</td>
+
+                <td>
+                    <!-- Placeholder banker actions -->
+                    <a href="/banker/add_money?user={{u['Username']}}">
+                        <button class="action-btn">+ Money</button>
+                    </a>
+                    <a href="/banker/sub_money?user={{u['Username']}}">
+                        <button class="action-btn">- Money</button>
+                    </a>
+                    <a href="/banker/delete?user={{u['Username']}}">
+                        <button class="action-btn">Delete</button>
+                    </a>
+
+                    <!-- Freeze/unfreeze -->
+                    {% if u.get("Frozen") == "Yes" %}
+                        <form method="POST" action="/unfreeze_account" style="display:inline;">
+                            <input type="hidden" name="username" value="{{u['Username']}}">
+                            <button class="action-btn">Unfreeze</button>
+                        </form>
+                    {% else %}
+                        <form method="POST" action="/freeze_account" style="display:inline;">
+                            <input type="hidden" name="username" value="{{u['Username']}}">
+                            <button class="action-btn">Freeze</button>
+                        </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </table>
+
+        <button class="create-account-btn" onclick="openModal()">Create New Account</button>
+    </div>
+
+    <!-- PENDING LOANS -->
+    <div class="box">
+        <h2>Pending Loans</h2>
+        <table>
+            {% for loan in pending_loans %}
+            <tr>
+                <td><b>{{ loan.name }}</b></td>
+                <td>${{ loan.amount }}</td>
+                <td>{{ loan.weekly }}/wk</td>
+                <td>
+                    <span style="color:var(--text-muted); cursor:pointer;"
+                          onclick="alert('{{loan.reason}}')">
+                        {{ loan.reason[:20] }}...
+                    </span>
+                </td>
+                <td>{{ loan.date }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- ACTIVE LOANS -->
+    <div class="box">
+        <h2>Active Loans</h2>
+        <table>
+            {% for loan in active_loans %}
+            <tr>
+                <td><b>{{ loan.name }}</b></td>
+                <td>${{ loan.amount }}</td>
+                <td>{{ loan.weekly }}/wk</td>
+                <td>{{ loan.time_remaining }} / {{ loan.total_time }} weeks left</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+</div>
+
+<div class="side-banner">Banner</div>
+
+<!-- CREATE ACCOUNT MODAL -->
+<div id="modal-bg" class="modal-bg">
+    <div class="modal-box">
+        <h3>Create New Account</h3>
+
+        <form method="POST" action="/create_account">
+            <input name="new_username" placeholder="Username" required>
+            <input name="new_password" type="password" placeholder="Password" required>
+
+            <button type="submit">Create</button>
+            <button type="button" class="close-modal" onclick="closeModal()">Cancel</button>
+        </form>
+    </div>
+</div>
+
+<script>
+function openModal() {
+    document.getElementById("modal-bg").style.display = "flex";
+}
+function closeModal() {
+    document.getElementById("modal-bg").style.display = "none";
+}
+
+/* Theme toggle */
+const toggleBtn = document.getElementById("theme-toggle");
+function applyTheme(theme) {
+    document.documentElement.classList.toggle("light-mode", theme === "light");
+    document.documentElement.classList.toggle("dark-mode", theme === "dark");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    applyTheme("{{ session.get('theme', 'dark') }}");
+});
+
+toggleBtn.addEventListener("click", async () => {
+    const res = await fetch("/toggle-theme", { method:"POST" });
+    if (res.ok) {
+        const data = await res.json();
+        applyTheme(data.theme);
+    }
+});
+</script>
+
+</body>
+</html>

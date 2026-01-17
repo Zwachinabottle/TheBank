@@ -1,0 +1,138 @@
+/* ---------- GLOBAL THEME VARIABLES ---------- */
+:root {
+    --brand: #24bff0;
+
+    --bg: #11191c;
+    --bg2: #1a2c32;
+    --bg3: #182429;
+    --text: #d7e6eb;
+    --text-muted: #9db6bd;
+    --input-bg: #243238;
+    --border: #2e4b52;
+
+    --rounded: 14px;
+    --shadow-1: 0 6px 20px rgba(0,0,0,0.18);
+    --shadow-2: 0 10px 30px rgba(0,0,0,0.25);
+}
+
+/* ---------- LIGHT MODE OVERRIDES ---------- */
+.light-mode {
+    --bg: #e7eef2;
+    --bg2: #f5f8fa;
+    --bg3: #ffffff;
+
+    --text: #1b1f21;
+    --text-muted: #556166;
+    --input-bg: #ecf1f3;
+    --border: #c7d2d6;
+}
+
+/* ---------- GLOBAL PAGE SETTINGS ---------- */
+html, body {
+    margin: 0;
+    font-family: "Inter", system-ui;
+    background: var(--bg);
+    color: var(--text);
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* Scrollbars unified */
+::-webkit-scrollbar {
+    width: 10px;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 10px;
+}
+
+/* ---------- CARDS ---------- */
+.card {
+    background: var(--bg2);
+    border-radius: var(--rounded);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-2);
+    padding: 20px;
+}
+
+/* ---------- BUTTONS ---------- */
+.btn, button {
+    background: var(--brand);
+    border: none;
+    padding: 10px 16px;
+    border-radius: 10px;
+    color: white;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 3px 12px rgba(36,191,240,0.35);
+    transition: 0.2s;
+}
+
+.btn:hover, button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(36,191,240,0.55);
+}
+
+/* ---------- INPUT FIELDS ---------- */
+input, select, textarea {
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    color: var(--text);
+    font-size: 15px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+input::placeholder {
+    color: var(--text-muted);
+}
+
+/* ---------- INFO / TRANSACTION BOXES ---------- */
+.info-card, .transaction-box, .simple-card {
+    background: var(--bg2);
+    padding: 20px;
+    border-radius: var(--rounded);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-1);
+}
+
+.history-box {
+    overflow-y: auto;
+    padding-right: 10px;
+}
+
+/* ---------- TOGGLE (LIGHT/DARK) ---------- */
+.toggle-btn {
+    width: 44px;
+    height: 24px;
+    border-radius: 50px;
+    border: 2px solid var(--border);
+    background: var(--input-bg);
+    position: relative;
+    cursor: pointer;
+    transition: 0.25s ease;
+}
+
+.toggle-btn::after {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--brand);
+    top: 2px;
+    left: 2px;
+    transition: 0.25s ease;
+}
+
+.light-mode .toggle-btn::after {
+    transform: translateX(20px);
+}
+
+/* ---------- UTILITY CLASSES ---------- */
+.text-muted { color: var(--text-muted); }
+.center { text-align: center; }
+.rounded { border-radius: var(--rounded); }
+.shadow-1 { box-shadow: var(--shadow-1); }
+.shadow-2 { box-shadow: var(--shadow-2); }
