@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="{{ session.get('theme', 'dark') }}-mode">
-
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
 <head>
     <meta charset="UTF-8">
     <title>Teacher Tools</title>
@@ -10,7 +9,6 @@
     <style>
         :root {
             --brand: #24bff0;
-
             --bg: #11191c;
             --bg2: #1a2c32;
             --bg3: #182429;
@@ -18,7 +16,6 @@
             --text-muted: #9db6bd;
             --input-bg: #243238;
             --border: #2e4b52;
-
             --rounded: 14px;
         }
 
@@ -32,57 +29,58 @@
             --border: #c7d2d6;
         }
 
-        /* Layout */
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
-            background: var(--bg);
-            color: var(--text);
-            font-family: "Inter", system-ui;
-
-            display: flex;
             height: 100vh;
-            overflow: hidden;
+            font-family: "Inter", system-ui;
+            background: radial-gradient(800px 400px at 10% 10%, rgba(36,191,240,0.12), transparent 15%),
+                        radial-gradient(600px 300px at 90% 90%, rgba(36,191,240,0.10), transparent 12%),
+                        linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            padding: 40px;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
 
         .side-banner {
             flex: 1;
+            max-width: 200px;
+            height: 85vh;
             background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: var(--rounded);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
             display: flex;
             align-items: center;
             justify-content: center;
-            border-right: 1px solid var(--border);
             color: var(--text-muted);
-        }
-
-        .side-banner:last-of-type {
-            border-left: 1px solid var(--border);
-            border-right: none;
         }
 
         .center-column {
             flex: 5;
-            max-width: 1200px;
-            margin: auto;
-
+            max-width: 1400px;
+            height: 85vh;
             background: var(--bg3);
             padding: 35px;
-            height: 100vh;
+            border-radius: var(--rounded);
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
             overflow-y: auto;
-
-            border-left: 1px solid var(--border);
-            border-right: 1px solid var(--border);
+            position: relative;
         }
 
-        /* Buttons & tables */
-        .action-btn {
-            padding: 5px 10px;
-            font-size: 13px;
-            background: var(--input-bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text);
-            cursor: pointer;
-            margin-right: 4px;
+        h1 {
+            text-align: center;
+            margin: 10px 0 30px;
+            font-size: 32px;
         }
 
         .box {
@@ -91,6 +89,17 @@
             border-radius: var(--rounded);
             margin-bottom: 30px;
             border: 1px solid var(--border);
+            position: relative;
+        }
+
+        .box h2 {
+            margin-top: 0;
+        }
+
+        /* Scrollable tables */
+        .table-container {
+            max-height: 400px;
+            overflow-y: auto;
         }
 
         table {
@@ -99,7 +108,32 @@
         }
 
         td {
-            padding: 6px;
+            padding: 8px 6px;
+            vertical-align: middle;
+        }
+
+        /* Action buttons */
+        .action-btn {
+            padding: 6px 12px;
+            font-size: 13px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            cursor: pointer;
+            margin-right: 4px;
+            transition: 0.2s ease;
+        }
+
+        .action-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .action-btn.frozen {
+            background: rgba(36, 191, 240, 0.2);
+            border-color: var(--brand);
+            color: var(--brand);
         }
 
         /* Create account button */
@@ -113,38 +147,59 @@
             cursor: pointer;
             margin-top: 20px;
             font-weight: bold;
+            transition: 0.2s ease;
         }
 
-        /* Modal popup */
+        .create-account-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 22px rgba(36,191,240,0.35);
+        }
+
+        /* Modal */
         .modal-bg {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.55);
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
             display: none;
             align-items: center;
             justify-content: center;
-            z-index: 50;
+            z-index: 2000;
+        }
+
+        .modal-bg.active {
+            display: flex;
         }
 
         .modal-box {
-            background: var(--bg2);
-            padding: 25px;
+            background: var(--bg3);
+            padding: 30px;
             border-radius: var(--rounded);
-            width: 350px;
+            width: 90%;
+            max-width: 400px;
             border: 1px solid var(--border);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.4);
         }
 
-        .modal-box input {
+        .modal-box h3 {
+            margin: 0 0 20px 0;
+            text-align: center;
+        }
+
+        .modal-box input,
+        .modal-box select,
+        .modal-box textarea {
             width: 100%;
-            padding: 10px;
+            padding: 12px;
             margin-bottom: 12px;
             background: var(--input-bg);
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: 10px;
             color: var(--text);
+            font-size: 15px;
         }
 
         .modal-box button {
@@ -156,196 +211,606 @@
             color: white;
             font-weight: bold;
             cursor: pointer;
+            transition: 0.2s ease;
+        }
+
+        .modal-box button:hover {
+            box-shadow: 0 0 16px rgba(36,191,240,0.35);
+            transform: translateY(-1px);
         }
 
         .close-modal {
-            background: #d9534f;
+            background: none !important;
+            border: 1px solid var(--border) !important;
+            color: var(--text);
             margin-top: 10px;
         }
 
-        /* Toggle */
-        .toggle-btn {
-            width: 44px;
-            height: 24px;
-            border-radius: 50px;
+        .close-modal:hover {
+            background: rgba(217, 83, 79, 0.1) !important;
+            border-color: #d9534f !important;
+        }
+
+        /* Money type selector */
+        .money-type-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .money-type-btn {
+            flex: 1;
+            padding: 10px;
             border: 2px solid var(--border);
-            background: var(--input-bg);
-            cursor: pointer;
-            position: relative;
-        }
-
-        .toggle-btn::after {
-            content: "";
-            width: 18px;
-            height: 18px;
-            background: var(--brand);
-            border-radius: 50%;
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            transition: 0.25s;
-        }
-
-        .light-mode .toggle-btn::after {
-            transform: translateX(20px);
-        }
-
-        /* Logout */
-        .logout-btn {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: var(--input-bg);
-            border: 1px solid var(--border);
-            padding: 8px 15px;
             border-radius: 10px;
+            background: var(--input-bg);
+            color: var(--text);
+            cursor: pointer;
+            transition: 0.2s ease;
+            font-weight: 600;
+        }
+
+        .money-type-btn.active.add {
+            background: rgba(34, 197, 94, 0.2);
+            border-color: #22c55e;
+            color: #22c55e;
+        }
+
+        .money-type-btn.active.subtract {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+
+        /* Theme Toggle */
+        .theme-toggle-corner {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: 0.2s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1600;
+        }
+
+        .theme-toggle-corner:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+        }
+
+        .theme-icon {
+            width: 24px;
+            height: 24px;
+            transition: 0.3s;
+        }
+
+        .sun-icon {
+            display: block;
+        }
+
+        .moon-icon {
+            display: none;
+        }
+
+        .light-mode .sun-icon {
+            display: none;
+        }
+
+        .light-mode .moon-icon {
+            display: block;
+        }
+
+        /* Bottom buttons */
+        .bottom-left-btns {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            display: flex;
+            gap: 10px;
+            z-index: 1600;
+        }
+
+        .bottom-right-btns {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            display: flex;
+            gap: 10px;
+            z-index: 1600;
+        }
+
+        .fab-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: 0.2s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             text-decoration: none;
             color: var(--text);
         }
 
+        .fab-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+            border-color: var(--brand);
+            background: rgba(36,191,240,0.1);
+        }
+
+        .fab-btn-cash {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: 0.2s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            text-decoration: none;
+            color: var(--text);
+            border-color: #f97316;
+            animation: burnPulse 2.8s ease-in-out infinite;
+            box-shadow:
+            0 0 12px rgba(249, 115, 22, 0.6),
+            0 0 24px rgba(249, 115, 22, 0.4);
+        }
+        .fab-btn-cash svg {
+    margin-top: 7px;
+}
+
+@keyframes burnPulse {
+    0%   { box-shadow: 0 0 12px rgba(249,115,22,.5); }
+    50%  { box-shadow: 0 0 20px rgba(249,115,22,.9); }
+    100% { box-shadow: 0 0 12px rgba(249,115,22,.5); }
+}
+
+
+        .fab-btn-cash:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+            border-color: #f97316;
+            background: rgba(249,115,22,0.12);
+            box-shadow:
+            0 0 16px rgba(249, 115, 22, 0.8),
+            0 0 32px rgba(249, 115, 22, 0.6);
+        }
+
+        .fed-reserve-btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            border: none;
+            border-radius: 999px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s ease;
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .fed-reserve-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(245, 158, 11, 0.5);
+        }
+
+        /* Loan status badge */
+        .loan-status {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .loan-status.pending {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(251, 191, 36, 0.3);
+        }
+
+        .loan-status.approved {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        /* Flash Messages */
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 3000;
+            max-width: 400px;
+        }
+
+        .flash-message {
+            padding: 14px 18px;
+            margin-bottom: 10px;
+            border-radius: 10px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+            animation: slideIn 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 500;
+        }
+
+        .flash-message.success {
+            background: rgba(34, 197, 94, 0.95);
+            color: white;
+            border: 1px solid rgba(34, 197, 94, 1);
+        }
+
+        .flash-message.error {
+            background: rgba(239, 68, 68, 0.95);
+            color: white;
+            border: 1px solid rgba(239, 68, 68, 1);
+        }
+
+        .flash-message.info {
+            background: rgba(36, 191, 240, 0.95);
+            color: white;
+            border: 1px solid rgba(36, 191, 240, 1);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeOut {
+            to {
+                opacity: 0;
+                transform: translateX(400px);
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .side-banner {
+                display: none;
+            }
+        }
     </style>
 </head>
 
 <body>
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                    <div class="flash-message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
 
-<div class="side-banner">Banner</div>
+    <!-- Theme Toggle -->
+    <button class="theme-toggle-corner" id="theme-toggle" aria-label="Toggle theme">
+        <svg class="theme-icon sun-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #fbbf24;">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/>
+        </svg>
+        <svg class="theme-icon moon-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #60a5fa;">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+    </button>
 
-<div class="center-column">
-
-    <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
-
-    <div style="text-align:right;">
-        <button id="theme-toggle" class="toggle-btn"></button>
+    <!-- Bottom Left Buttons -->
+    <div class="bottom-left-btns">
+        <a href="{{ url_for('account') }}" class="fab-btn" aria-label="Account">
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/>
+            </svg>
+        </a>
+        <a href="{{ url_for('logout') }}" class="fab-btn" aria-label="Logout">
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+            </svg>
+        </a>
     </div>
 
-    <h1 style="text-align:center;">Teacher Tools</h1>
+    <!-- Bottom Right Buttons -->
+    <div class="bottom-right-btns">
+        <button class="fab-btn-cash" aria-label="Request Cash Burn" onclick="openCashBurnModal()">
+            <svg width="32" height="32" fill="none" stroke="currentColor"
+     stroke-width="2" viewBox="0 0 24 24">
+    <path d="M12 2c1.5 3 5 4 5 9a5 5 0 1 1-10 0c0-2.5 1.5-4.5 3-6 1 2 3 3 3 6"/>
+</svg>
+        </button>
+    </div>
 
-    <!-- ACCOUNTS BOX -->
-    <div class="box">
-        <h2>Accounts</h2>
+    <!-- Left Banner -->
+    <div class="side-banner">Banner</div>
 
-        <table>
-            {% for u in users %}
-            {% if u["Role"] == "Student" %}
-            <tr>
-                <td><b>{{ u["Username"] }}</b></td>
-                <td>${{ "%.2f"|format(u["Balance"]) }}</td>
+    <!-- Main Content -->
+    <div class="center-column">
+        <h1>Teacher Tools</h1>
 
-                <td>
-                    <!-- Placeholder banker actions -->
-                    <a href="/banker/add_money?user={{u['Username']}}">
-                        <button class="action-btn">+ Money</button>
-                    </a>
-                    <a href="/banker/sub_money?user={{u['Username']}}">
-                        <button class="action-btn">- Money</button>
-                    </a>
-                    <a href="/banker/delete?user={{u['Username']}}">
-                        <button class="action-btn">Delete</button>
-                    </a>
-
-                    <!-- Freeze/unfreeze -->
-                    {% if u.get("Frozen") == "Yes" %}
-                        <form method="POST" action="/unfreeze_account" style="display:inline;">
-                            <input type="hidden" name="username" value="{{u['Username']}}">
-                            <button class="action-btn">Unfreeze</button>
-                        </form>
-                    {% else %}
-                        <form method="POST" action="/freeze_account" style="display:inline;">
-                            <input type="hidden" name="username" value="{{u['Username']}}">
-                            <button class="action-btn">Freeze</button>
-                        </form>
+        <!-- ACCOUNTS BOX -->
+        <div class="box">
+            <h2>Student Accounts</h2>
+            <div class="table-container">
+                <table>
+                    {% for u in users %}
+                    {% if u["Role"] == "Student" %}
+                    <tr>
+                        <td><b>{{ u["Username"] }}</b></td>
+                        <td>${{ "%.2f"|format(u["Balance"]) }}</td>
+                        <td>
+                            <button class="action-btn" onclick="openMoneyModal('{{ u['Username'] }}')">Adjust Money</button>
+                            <button class="action-btn" onclick="openSetMoneyModal('{{ u['Username'] }}')">Set Money</button>
+                            
+                            {% if u.get("Frozen") == "Yes" %}
+                            <button class="action-btn frozen" onclick="toggleFreeze('{{ u['Username'] }}', false)">Unfreeze</button>
+                            {% else %}
+                            <button class="action-btn" onclick="toggleFreeze('{{ u['Username'] }}', true)">Freeze</button>
+                            {% endif %}
+                            
+                            <button class="action-btn" onclick="openDeleteModal('{{ u['Username'] }}')">Delete</button>
+                        </td>
+                    </tr>
                     {% endif %}
-                </td>
-            </tr>
-            {% endif %}
-            {% endfor %}
-        </table>
+                    {% endfor %}
+                </table>
+            </div>
+            <button class="create-account-btn" onclick="openCreateModal()">Create New Account</button>
+        </div>
 
-        <button class="create-account-btn" onclick="openModal()">Create New Account</button>
+        <!-- LOANS BOX -->
+        <div class="box">
+            <h2>Loan Applications</h2>
+            <div class="table-container" style="max-height: 150px;">
+                <table>
+                    {% for loan in loans %}
+                    <tr>
+                        <td>
+                            <b>{{ loan.Requester }}</b>
+                            <span class="loan-status {{ loan.Status|lower }}">{{ loan.Status }}</span>
+                        </td>
+                        <td>${{ "%.2f"|format(loan.Amount) }}</td>
+                        <td>${{ "%.2f"|format(loan.Weekly) }}/wk for {{ loan.Weeks }} weeks</td>
+                        <td style="color:var(--text-muted); font-size: 13px;">{{ loan.Reason }}</td>
+                        <td style="font-size: 12px; color: var(--text-muted);">{{ loan.Date }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+
+        <!-- Federal Reserve Button -->
+        <div style="text-align: center; margin-bottom: 30px;">
+            <a href="{{ url_for('federal_reserve') }}" class="fed-reserve-btn" style="position: static; transform: none;">
+                Federal Reserve
+            </a>
+        </div>
     </div>
 
-    <!-- PENDING LOANS -->
-    <div class="box">
-        <h2>Pending Loans</h2>
-        <table>
-            {% for loan in pending_loans %}
-            <tr>
-                <td><b>{{ loan.name }}</b></td>
-                <td>${{ loan.amount }}</td>
-                <td>{{ loan.weekly }}/wk</td>
-                <td>
-                    <span style="color:var(--text-muted); cursor:pointer;"
-                          onclick="alert('{{loan.reason}}')">
-                        {{ loan.reason[:20] }}...
-                    </span>
-                </td>
-                <td>{{ loan.date }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+    <!-- Right Banner -->
+    <div class="side-banner">Banner</div>
+
+    <!-- CREATE ACCOUNT MODAL -->
+    <div id="createModal" class="modal-bg">
+        <div class="modal-box">
+            <h3>Create New Account</h3>
+            <form method="POST" action="/create_account">
+                <input name="new_username" placeholder="Username" required>
+                <input name="new_password" type="password" placeholder="Password" required>
+                <select name="role" required>
+                    <option value="">Select Role</option>
+                    <option value="Student">Student</option>
+                    <option value="Teacher">Teacher</option>
+                </select>
+                <button type="submit">Create Account</button>
+                <button type="button" class="close-modal" onclick="closeModal('createModal')">Cancel</button>
+            </form>
+        </div>
     </div>
 
-    <!-- ACTIVE LOANS -->
-    <div class="box">
-        <h2>Active Loans</h2>
-        <table>
-            {% for loan in active_loans %}
-            <tr>
-                <td><b>{{ loan.name }}</b></td>
-                <td>${{ loan.amount }}</td>
-                <td>{{ loan.weekly }}/wk</td>
-                <td>{{ loan.time_remaining }} / {{ loan.total_time }} weeks left</td>
-            </tr>
-            {% endfor %}
-        </table>
+    <!-- ADJUST MONEY MODAL -->
+    <div id="moneyModal" class="modal-bg">
+        <div class="modal-box">
+            <h3 id="moneyModalTitle">Adjust Balance</h3>
+            <form id="moneyForm" method="POST" action="/adjust_money">
+                <input type="hidden" id="moneyUsername" name="username">
+                
+                <div class="money-type-selector">
+                    <button type="button" class="money-type-btn add active" onclick="selectMoneyType('add')">
+                        ➕ Add Money
+                    </button>
+                    <button type="button" class="money-type-btn subtract" onclick="selectMoneyType('subtract')">
+                        ➖ Subtract Money
+                    </button>
+                </div>
+                
+                <input type="hidden" id="moneyAction" name="action" value="add">
+                <input type="number" id="moneyAmount" name="amount" step="0.01" min="0.01" placeholder="Amount" required>
+                <button type="submit">Confirm</button>
+                <button type="button" class="close-modal" onclick="closeModal('moneyModal')">Cancel</button>
+            </form>
+        </div>
     </div>
 
-</div>
-
-<div class="side-banner">Banner</div>
-
-<!-- CREATE ACCOUNT MODAL -->
-<div id="modal-bg" class="modal-bg">
-    <div class="modal-box">
-        <h3>Create New Account</h3>
-
-        <form method="POST" action="/create_account">
-            <input name="new_username" placeholder="Username" required>
-            <input name="new_password" type="password" placeholder="Password" required>
-
-            <button type="submit">Create</button>
-            <button type="button" class="close-modal" onclick="closeModal()">Cancel</button>
-        </form>
+    <!-- SET MONEY MODAL -->
+    <div id="setMoneyModal" class="modal-bg">
+        <div class="modal-box">
+            <h3 id="setMoneyModalTitle">Set Balance</h3>
+            <form method="POST" action="/set_money">
+                <input type="hidden" id="setMoneyUsername" name="username">
+                <input type="number" id="setMoneyAmount" name="amount" step="0.01" min="0" placeholder="New Balance" required>
+                <button type="submit">Set Balance</button>
+                <button type="button" class="close-modal" onclick="closeModal('setMoneyModal')">Cancel</button>
+            </form>
+        </div>
     </div>
-</div>
 
-<script>
-function openModal() {
-    document.getElementById("modal-bg").style.display = "flex";
-}
-function closeModal() {
-    document.getElementById("modal-bg").style.display = "none";
-}
+    <!-- DELETE CONFIRMATION MODAL -->
+    <div id="deleteModal" class="modal-bg">
+        <div class="modal-box">
+            <h3>Delete Account</h3>
+            <p style="text-align: center; color: var(--text-muted); margin-bottom: 15px;">
+                Are you sure you want to delete <b id="deleteUsername"></b>?
+            </p>
+            <form id="deleteForm" method="POST" action="/delete_account">
+                <input type="hidden" id="deleteUsernameInput" name="username">
+                <textarea name="reason" placeholder="Reason for deletion" rows="3" required></textarea>
+                <button type="submit">Confirm Delete</button>
+                <button type="button" class="close-modal" onclick="closeModal('deleteModal')">Cancel</button>
+            </form>
+        </div>
+    </div>
 
-/* Theme toggle */
-const toggleBtn = document.getElementById("theme-toggle");
-function applyTheme(theme) {
-    document.documentElement.classList.toggle("light-mode", theme === "light");
-    document.documentElement.classList.toggle("dark-mode", theme === "dark");
-}
+    <!-- CASH BURN MODAL -->
+    <div id="cashBurnModal" class="modal-bg">
+        <div class="modal-box">
+            <h3>Request Cash Burn</h3>
+            <form method="POST" action="/request_cashburn">
+                <input type="number" name="amount" step="0.01" min="0.01" placeholder="Amount" required>
+                <textarea name="reason" placeholder="Reason for cash burn" rows="3" required></textarea>
+                <button type="submit">Submit Request</button>
+                <button type="button" class="close-modal" onclick="closeModal('cashBurnModal')">Cancel</button>
+            </form>
+        </div>
+    </div>
 
-document.addEventListener("DOMContentLoaded", () => {
-    applyTheme("{{ session.get('theme', 'dark') }}");
-});
+    <script>
+        // Auto-dismiss flash messages
+        document.addEventListener('DOMContentLoaded', () => {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach((msg, index) => {
+                setTimeout(() => {
+                    msg.style.animation = 'fadeOut 0.3s ease forwards';
+                    setTimeout(() => msg.remove(), 300);
+                }, 3000 + (index * 500));
+            });
+        });
 
-toggleBtn.addEventListener("click", async () => {
-    const res = await fetch("/toggle-theme", { method:"POST" });
-    if (res.ok) {
-        const data = await res.json();
-        applyTheme(data.theme);
-    }
-});
-</script>
+        // Modal functions
+        function openCreateModal() {
+            document.getElementById('createModal').classList.add('active');
+        }
 
+        function openMoneyModal(username) {
+            document.getElementById('moneyUsername').value = username;
+            document.getElementById('moneyModalTitle').textContent = 'Adjust Balance for ' + username;
+            selectMoneyType('add'); // Reset to add by default
+            document.getElementById('moneyAmount').value = '';
+            document.getElementById('moneyModal').classList.add('active');
+        }
+
+        function openSetMoneyModal(username) {
+            document.getElementById('setMoneyUsername').value = username;
+            document.getElementById('setMoneyModalTitle').textContent = 'Set Balance for ' + username;
+            document.getElementById('setMoneyAmount').value = '';
+            document.getElementById('setMoneyModal').classList.add('active');
+        }
+
+        function selectMoneyType(type) {
+            document.getElementById('moneyAction').value = type;
+            
+            const addBtn = document.querySelector('.money-type-btn.add');
+            const subtractBtn = document.querySelector('.money-type-btn.subtract');
+            
+            if (type === 'add') {
+                addBtn.classList.add('active');
+                subtractBtn.classList.remove('active');
+            } else {
+                addBtn.classList.remove('active');
+                subtractBtn.classList.add('active');
+            }
+        }
+
+        function openDeleteModal(username) {
+            document.getElementById('deleteUsername').textContent = username;
+            document.getElementById('deleteUsernameInput').value = username;
+            document.getElementById('deleteModal').classList.add('active');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        function openCashBurnModal() {
+            document.getElementById('cashBurnModal').classList.add('active');
+        }
+
+        function toggleFreeze(username, freeze) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = freeze ? '/freeze_account' : '/unfreeze_account';
+            
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'username';
+            input.value = username;
+            
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        // Close modals when clicking outside
+        document.querySelectorAll('.modal-bg').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.remove('active');
+                }
+            });
+        });
+
+        // Theme toggle
+        const toggleBtn = document.getElementById('theme-toggle');
+        const root = document.getElementById('html-root');
+
+        function applyTheme(theme) {
+            if (theme === 'light') {
+                root.classList.remove('dark-mode');
+                root.classList.add('light-mode');
+            } else {
+                root.classList.remove('light-mode');
+                root.classList.add('dark-mode');
+            }
+            void root.offsetWidth;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const saved = "{{ session.get('theme', 'dark') }}";
+            applyTheme(saved);
+        });
+
+        toggleBtn.addEventListener('click', async () => {
+            const res = await fetch('/toggle-theme', { method: 'POST' });
+            if (res.ok) {
+                const data = await res.json();
+                applyTheme(data.theme);
+            }
+        });
+    </script>
 </body>
 </html>

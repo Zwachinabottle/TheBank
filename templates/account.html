@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="{{ session.get('theme', 'dark') }}-mode">
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
 <head>
 <meta charset="UTF-8">
 <title>Account Dashboard</title>
@@ -7,267 +7,501 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
 <style>
-    .right-loan-btn {
-  margin-top: 20px;
-  padding: 14px 22px;
-  border-radius: 14px;
-  background: var(--brand);
-  color: white;
-  border: none;
-  font-weight: 700;
-  cursor: pointer;
-  transition: 0.2s ease;
-  width: 80%;
-}
-
-.right-loan-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 22px rgba(36,191,240,0.35);
-}
     @font-face {
-  font-family: "DollarFont";
-  src: url("{{ url_for('static', filename='fonts/MyCustomFont.ttf') }}") format("truetype");
-}
-.dollar {
-  font-family: "DollarFont", Inter, system-ui;
-}
-    /* LOGOUT FLOATING BUTTON */
-.logout-fab {
-  position: fixed;
-  bottom: 24px;
-  left: 24px;
-  padding: 12px 20px;
-  border-radius: 999px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: none;
-  transition: 0.2s ease;
-  z-index: 1500;
-}
+      font-family: "DollarFont";
+      src: url("{{ url_for('static', filename='fonts/MyCustomFont.ttf') }}") format("truetype");
+    }
+    
+    .dollar {
+      font-family: "DollarFont", Inter, system-ui;
+    }
 
-.logout-fab:hover {
-  background: rgba(36,191,240,0.18);
-  border-color: var(--brand);
-  transform: translateY(-2px);
-}
-:root {
-  --brand:#24bff0;
-  --bg:#11191c;
-  --bg2:#1a2c32;
-  --bg3:#182429;
-  --text:#d7e6eb;
-  --text-muted:#9db6bd;
-  --input-bg:#243238;
-  --border:#2e4b52;
-  --rounded:14px;
-}
+    :root {
+      --brand:#24bff0;
+      --bg:#11191c;
+      --bg2:#1a2c32;
+      --bg3:#182429;
+      --text:#d7e6eb;
+      --text-muted:#9db6bd;
+      --input-bg:#243238;
+      --border:#2e4b52;
+      --rounded:14px;
+    }
 
-.light-mode {
-  --bg:#e7eef2;
-  --bg2:#f5f8fa;
-  --bg3:#ffffff;
-  --text:#1b1f21;
-  --text-muted:#556166;
-  --input-bg:#ecf1f3;
-  --border:#c7d2d6;
-}
+    .light-mode {
+      --bg:#e7eef2;
+      --bg2:#f5f8fa;
+      --bg3:#ffffff;
+      --text:#1b1f21;
+      --text-muted:#556166;
+      --input-bg:#ecf1f3;
+      --border:#c7d2d6;
+    }
 
-body {
-  margin:0;
-  height:100vh;
-  display:flex;
-  font-family: Inter, system-ui;
-  background:var(--bg);
-  color:var(--text);
-  overflow:hidden;
-}
+    body {
+      margin:0;
+      height:100vh;
+      display:flex;
+      font-family: Inter, system-ui;
+      background:var(--bg);
+      color:var(--text);
+      overflow:hidden;
+    }
 
-/* SIDE BANNERS */
-.side-banner {
-  flex:1;
-  background:var(--bg2);
-  border-right:1px solid var(--border);
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:20px;
-}
+    /* SIDE BANNERS */
+    .side-banner-left {
+      flex:1;
+      background:var(--bg2);
+      border-right:1px solid var(--border);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:flex-start;
+      gap:10px;
+      padding-top: 40px;
+    }
+      .side-banner-right {
+      flex:1;
+      background:var(--bg2);
+      border-right:1px solid var(--border);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      padding-top: 40px;
+    }
 
-.side-banner:last-child {
-  border-right:none;
-  border-left:1px solid var(--border);
-}
+    .side-banner:last-child {
+      border-right:none;
+      border-left:1px solid var(--border);
+      justify-content:center;
+    }
 
-/* CENTER COLUMN */
-.center-column {
-  flex:5;
-  max-width:1200px;
-  margin:auto;
-  padding:35px;
-  background:var(--bg3);
-  border-left:1px solid var(--border);
-  border-right:1px solid var(--border);
-  overflow-y:auto;
-}
+    .ad-space {
+      width: 80%;
+      height: 450px;
+      background: var(--bg3);
+      border: 2px dashed var(--border);
+      border-radius: var(--rounded);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-top: 30px;
+    }
 
-h1 {
-  text-align:center;
-  margin:10px 0 30px;
-  font-size:32px;
-}
+    /* CENTER COLUMN */
+    .center-column {
+      flex:5;
+      max-width:1200px;
+      margin:auto;
+      padding:35px;
+      background:var(--bg3);
+      border-left:1px solid var(--border);
+      border-right:1px solid var(--border);
+      overflow-y:auto;
+    }
 
-h2 { margin-top:0 }
+    h1 {
+      text-align:center;
+      margin:10px 0 30px;
+      font-size:32px;
+    }
 
-/* INFO CARDS */
-.info-row {
-  display:flex;
-  gap:20px;
-}
+    h2 { margin-top:0 }
 
-.info-card {
-  flex:1;
-  background:var(--bg2);
-  padding:20px;
-  border-radius:var(--rounded);
-  border:1px solid var(--border);
-  box-shadow:0 6px 20px rgba(0,0,0,0.18);
-}
+    /* INFO CARDS */
+    .info-row {
+      display:flex;
+      gap:20px;
+    }
 
-/* LOANS */
-.loan-card {
-  margin-top:25px;
-}
+    .info-card {
+      flex:1;
+      background:var(--bg2);
+      padding:20px;
+      border-radius:var(--rounded);
+      border:1px solid var(--border);
+      box-shadow:0 6px 20px rgba(0,0,0,0.18);
+    }
 
-/* TRANSACTIONS */
-.transaction-box {
-  margin-top:25px;
-  background:var(--bg2);
-  padding:20px;
-  border-radius:var(--rounded);
-  border:1px solid var(--border);
-  box-shadow:0 6px 20px rgba(0,0,0,0.18);
-}
+    /* LOANS */
+    .loan-card {
+      margin-top:25px;
+      background:var(--bg2);
+      padding:20px;
+      border-radius:var(--rounded);
+      border:1px solid var(--border);
+      box-shadow:0 6px 20px rgba(0,0,0,0.18);
+    }
 
-.history-box {
-  max-height:300px;
-  overflow-y:auto;
-}
+    .loans-box {
+      max-height: 205px;
+      overflow-y: auto;
+    }
 
-table {
-  width:100%;
-  border-spacing:0 10px;
-}
+    .loan-item {
+      background: var(--bg3);
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+    }
 
-td {
-  padding:4px;
-}
+    .loan-item p {
+      margin: 6px 0;
+    }
 
-/* MODAL */
-.modal-overlay {
-  position:fixed;
-  inset:0;
-  background:rgba(0,0,0,.65);
-  display:none;
-  align-items:center;
-  justify-content:center;
-  z-index:2000;
-}
+    .loan-status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 8px;
+    }
 
-.modal-overlay.active {
-  display:flex;
-}
+    .loan-status.pending {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(251, 191, 36, 0.3);
+    }
 
-.modal {
-  background:var(--bg3);
-  padding:28px;
-  border-radius:16px;
-  width:100%;
-  max-width:420px;
-  border:1px solid var(--border);
-}
+    .loan-status.active {
+      background: rgba(34, 197, 94, 0.2);
+      color: #22c55e;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
 
-.modal input, .modal button {
-  width:100%;
-  padding:12px;
-  margin-top:12px;
-  border-radius:10px;
-}
+    /* TRANSACTIONS */
+    .transaction-box {
+      margin-top:25px;
+      background:var(--bg2);
+      padding:20px;
+      border-radius:var(--rounded);
+      border:1px solid var(--border);
+      box-shadow:0 6px 20px rgba(0,0,0,0.18);
+    }
 
-.modal input {
-  background:var(--input-bg);
-  border:1px solid var(--border);
-  color:var(--text);
-}
+    .history-box {
+      max-height: 100px;
+      overflow-y:auto;
+    }
 
-.modal button {
-  border:none;
-  background:var(--brand);
-  color:white;
-  font-weight:700;
-  cursor:pointer;
-}
+    table {
+      width:100%;
+      border-spacing:0 10px;
+    }
 
-.modal-close {
-  background:none;
-  border:1px solid var(--border);
-  margin-top:12px;
-}
+    td {
+      padding:4px;
+    }
 
-/* FLOATING BUTTONS */
-.floating-btn {
-  position:fixed;
-  bottom:24px;
-  left:50%;
-  transform:translateX(-50%);
-  padding:14px 24px;
-  border-radius:999px;
-  background:var(--brand);
-  color:white;
-  border:none;
-  font-weight:700;
-  cursor:pointer;
-  z-index:1500;
-}
-.floating-btn:hover {
-  box-shadow:0 8px 22px rgba(36,191,240,0.35);
-  transform:translateX(-50%) translateY(-2px);
-}
+    /* MODAL */
+    .modal-overlay {
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.65);
+      backdrop-filter: blur(4px);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:2000;
+    }
 
-.teacher-fab {
-  position:fixed;
-  bottom:24px;
-  right:24px;
-  width:54px;
-  height:54px;
-  border-radius:50%;
-  background:var(--bg2);
-  border:1px solid var(--border);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size:22px;
-  color:var(--text);
-  text-decoration:none;
-  z-index:1500;
-}
-.teacher-fab:hover {
-  background: rgba(36,191,240,0.18);
-  border-color: var(--brand);
-  transform: translateY(-2px);
-}
+    .modal-overlay.active {
+      display:flex;
+    }
+
+    .modal {
+      background:var(--bg3);
+      padding:28px;
+      border-radius:16px;
+      width:100%;
+      max-width:420px;
+      border:1px solid var(--border);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+
+    .modal h2 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .modal form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .modal input {
+      width: 100%;
+      padding:12px;
+      margin-top:12px;
+      border-radius:10px;
+      background:var(--input-bg);
+      border:1px solid var(--border);
+      color:var(--text);
+      box-sizing: border-box;
+    }
+
+    .modal button {
+      width: 100%;
+      padding:12px;
+      margin-top:12px;
+      border-radius:10px;
+      border:none;
+      background:var(--brand);
+      color:white;
+      font-weight:700;
+      cursor:pointer;
+      transition: 0.2s ease;
+    }
+
+    .modal button:hover {
+      box-shadow: 0 0 16px rgba(36,191,240,0.35);
+      transform: translateY(-1px);
+    }
+
+    .modal-close {
+      background:none !important;
+      border:1px solid var(--border) !important;
+      margin-top:12px;
+      color: var(--text);
+    }
+
+    .modal-close:hover {
+      background: rgba(217, 83, 79, 0.1) !important;
+      border-color: #d9534f !important;
+      box-shadow: 0 0 16px rgba(217, 83, 79, 0.25) !important;
+    }
+
+    /* FLOATING BUTTONS */
+    .floating-btn {
+      position:fixed;
+      bottom:24px;
+      left:50%;
+      transform:translateX(-50%);
+      padding:14px 24px;
+      border-radius:999px;
+      background:var(--brand);
+      color:white;
+      border:none;
+      font-weight:700;
+      cursor:pointer;
+      z-index:1500;
+      transition: 0.2s ease;
+    }
+    
+    .floating-btn:hover {
+      box-shadow:0 8px 22px rgba(36,191,240,0.35);
+      transform:translateX(-50%) translateY(-2px);
+    }
+
+    .teacher-fab {
+      position:fixed;
+      bottom:24px;
+      right:24px;
+      width:54px;
+      height:54px;
+      border-radius:50%;
+      background:var(--bg2);
+      border:1px solid var(--border);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:22px;
+      color:var(--text);
+      text-decoration:none;
+      z-index:1500;
+      transition: 0.2s ease;
+    }
+    
+    .teacher-fab:hover {
+      background: rgba(36,191,240,0.18);
+      border-color: var(--brand);
+      transform: translateY(-2px);
+    }
+
+    .logout-fab {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      padding: 12px 20px;
+      border-radius: 999px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: 0.2s ease;
+      z-index: 1500;
+    }
+
+    .logout-fab:hover {
+      background: rgba(36,191,240,0.18);
+      border-color: var(--brand);
+      transform: translateY(-2px);
+    }
+
+    .right-loan-btn {
+      margin-top: 10px;
+      padding: 14px 22px;
+      border-radius: 14px;
+      background: var(--brand);
+      color: white;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.2s ease;
+      width: 80%;
+    }
+
+    .right-loan-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(36,191,240,0.35);
+    }
+
+    /* Theme Toggle */
+    .theme-toggle-corner {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1600;
+    }
+
+    .theme-toggle-corner:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+    }
+
+    .theme-icon {
+      width: 24px;
+      height: 24px;
+      transition: 0.3s;
+    }
+
+    .sun-icon {
+      display: block;
+    }
+
+    .moon-icon {
+      display: none;
+    }
+
+    .light-mode .sun-icon {
+      display: none;
+    }
+
+    .light-mode .moon-icon {
+      display: block;
+    }
+
+    /* Flash Messages */
+    .flash-messages {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 3000;
+      max-width: 400px;
+    }
+
+    .flash-message {
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+      animation: slideIn 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 500;
+    }
+
+    .flash-message.success {
+      background: rgba(34, 197, 94, 0.95);
+      color: white;
+      border: 1px solid rgba(34, 197, 94, 1);
+    }
+
+    .flash-message.error {
+      background: rgba(239, 68, 68, 0.95);
+      color: white;
+      border: 1px solid rgba(239, 68, 68, 1);
+    }
+
+    .flash-message.info {
+      background: rgba(36, 191, 240, 0.95);
+      color: white;
+      border: 1px solid rgba(36, 191, 240, 1);
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes fadeOut {
+      to {
+        opacity: 0;
+        transform: translateX(400px);
+      }
+    }
 </style>
 </head>
 
 <body>
-    <a href="{{ url_for('logout') }}" class="logout-fab">
+<!-- Flash Messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <div class="flash-message {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<!-- Theme Toggle Button -->
+<button class="theme-toggle-corner" id="theme-toggle" aria-label="Toggle theme">
+  <svg class="theme-icon sun-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #fbbf24;">
+    <circle cx="12" cy="12" r="4"/>
+    <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/>
+  </svg>
+  <svg class="theme-icon moon-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #60a5fa;">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+  </svg>
+</button>
+
+<a href="{{ url_for('logout') }}" class="logout-fab">
   Logout
 </a>
-<div class="side-banner">
-  <img src="{{ url_for('static', filename='ahs_logo.png') }}" style="height:300px">
+
+<div class="side-banner-left">
+  <img src="{{ url_for('static', filename='ahs_logo.png') }}" style="height:200px">
+  <div class="ad-space">
+    Ad Space
+  </div>
 </div>
 
 <div class="center-column">
@@ -277,9 +511,9 @@ td {
 <div class="info-row">
   <div class="info-card">
     <h2>Available Balance</h2>
-   <p style="font-size:26px;font-weight:700">
-  <span class="dollar">$</span>{{ "%.2f"|format(balance) }}
-</p>
+    <p style="font-size:26px;font-weight:700">
+      <span class="dollar">$</span>{{ "%.2f"|format(balance) }}
+    </p>
   </div>
 
   <div class="info-card">
@@ -291,47 +525,55 @@ td {
 
 <div class="info-card loan-card">
   <h2>Your Loans</h2>
-  {% if loans %}
-    {% for loan in loans %}
-      <p>Amount: <b>${{ "%.2f"|format(loan.amount) }}</b><br>
-      Remaining: <b>${{ "%.2f"|format(loan.remaining) }}</b></p>
-    {% endfor %}
-  {% else %}
-    <p style="color:var(--text-muted)">No active loans</p>
-  {% endif %}
+  <div class="loans-box">
+    {% if loans %}
+      {% for loan in loans %}
+        <div class="loan-item">
+          <p><strong>Reason:</strong> {{ loan.Reason }}</p>
+          <p><strong>Amount:</strong> <span class="dollar">$</span>{{ "%.2f"|format(loan.Amount) }}</p>
+          <p><strong>Weekly Payment:</strong> <span class="dollar">$</span>{{ "%.2f"|format(loan.Weekly) }}</p>
+          <p><strong>Duration:</strong> {{ loan.Weeks }} weeks</p>
+          <p><strong>Applied:</strong> {{ loan.Date }}</p>
+          <span class="loan-status {{ loan.Status|lower }}">{{ loan.Status }}</span>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p style="color:var(--text-muted)">No active loans</p>
+    {% endif %}
+  </div>
 </div>
 
 <div class="transaction-box">
-<h2>Past Transactions</h2>
-<div class="history-box">
-<table>
-{% for t in transactions %}
-<tr>
-<td>
-<b>
-{% if t.Sender == username %}
-Sent to {{ t.Receiver }}
-{% else %}
-Received from {{ t.Sender }}
-{% endif %}
-</b><br>
-<span style="font-size:13px;color:var(--text-muted)">
-{{ t.Date }} {% if t.Comment %}— "{{ t.Comment }}"{% endif %}
-</span>
-</td>
-<td style="text-align:right;font-weight:700">
-${{ "%.2f"|format(t.Amount) }}
-</td>
-</tr>
-{% endfor %}
-</table>
-</div>
-</div>
-
+  <h2>Past Transactions</h2>
+  <div class="history-box">
+    <table>
+      {% for t in transactions %}
+      <tr>
+        <td>
+          <b>
+            {% if t.Sender == username %}
+              Sent to {{ t.Receiver }}
+            {% else %}
+              Received from {{ t.Sender }}
+            {% endif %}
+          </b><br>
+          <span style="font-size:13px;color:var(--text-muted)">
+            {{ t.Date }} {% if t.Comment %}— "{{ t.Comment }}"{% endif %}
+          </span>
+        </td>
+        <td style="text-align:right;font-weight:700">
+          <span class="dollar">$</span>{{ "%.2f"|format(t.Amount) }}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
 </div>
 
-<div class="side-banner">
-  <img src="{{ url_for('static', filename='banner.png') }}" style="height:400px">
+</div>
+
+<div class="side-banner-right">
+  <img src="{{ url_for('static', filename='banner.png') }}" style="height:325px">
   <button
     class="right-loan-btn"
     onclick="window.location.href='{{ url_for('loan') }}'">
@@ -339,31 +581,79 @@ ${{ "%.2f"|format(t.Amount) }}
   </button>
 </div>
 
-
 <!-- MODAL -->
 <div class="modal-overlay" id="transactionModal">
   <div class="modal">
     <h2>Make a Transaction</h2>
     <form method="POST" action="{{ url_for('transfer') }}">
       <input name="receiver" placeholder="Receiver Username" required>
-      <input name="amount" type="number" placeholder="Amount" required>
+      <input name="amount" type="number" step="0.01" min="0.01" placeholder="Amount" required>
       <input name="comment" placeholder="Comment (optional)">
       <button type="submit">Send</button>
+      <button type="button" class="modal-close" onclick="closeTransaction()">Cancel</button>
     </form>
-    <button class="modal-close" onclick="closeTransaction()">Cancel</button>
   </div>
 </div>
 
 <button class="floating-btn" onclick="openTransaction()">New Transaction</button>
+
+{% if session.get('role') in ['Teacher', 'Banker'] %}
 <a href="/teachertools" class="teacher-fab">🛠</a>
+{% endif %}
 
 <script>
+// Auto-dismiss flash messages
+document.addEventListener('DOMContentLoaded', () => {
+  const flashMessages = document.querySelectorAll('.flash-message');
+  flashMessages.forEach((msg, index) => {
+    setTimeout(() => {
+      msg.style.animation = 'fadeOut 0.3s ease forwards';
+      setTimeout(() => msg.remove(), 300);
+    }, 3000 + (index * 500)); // Stagger dismissal if multiple messages
+  });
+});
+
 function openTransaction(){
   document.getElementById("transactionModal").classList.add("active");
 }
 function closeTransaction(){
   document.getElementById("transactionModal").classList.remove("active");
 }
+
+// Theme toggle
+const toggleBtn = document.getElementById("theme-toggle");
+const root = document.getElementById("html-root");
+
+function applyTheme(theme) {
+  if (theme === "light") {
+    root.classList.remove("dark-mode");
+    root.classList.add("light-mode");
+  } else {
+    root.classList.remove("light-mode");
+    root.classList.add("dark-mode");
+  }
+  void root.offsetWidth;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const saved = "{{ session.get('theme', 'dark') }}";
+  applyTheme(saved);
+});
+
+toggleBtn.addEventListener("click", async () => {
+  const r = await fetch("/toggle-theme", { method: "POST" });
+  if (r.ok) {
+    const data = await r.json();
+    applyTheme(data.theme);
+  }
+});
+
+// Close modal when clicking outside
+document.getElementById("transactionModal").addEventListener("click", function(e) {
+  if (e.target === this) {
+    closeTransaction();
+  }
+});
 </script>
 
 </body>

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
+<html lang="en" class="dark-mode" id="html-root">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -59,6 +59,7 @@
       color: var(--text);
       font-family: "Inter", system-ui;
       transition: background 0.3s ease, color 0.3s ease;
+      position: relative;
     }
 
     .card {
@@ -93,6 +94,7 @@
     }
 
     h1 { margin: 0; font-size: 26px; color: var(--text); text-align: center;}
+    h2 { margin: 0 0 8px 0; font-size: 24px; color: var(--text);}
     p.lead { margin: 0; color: var(--text-muted); }
 
     .teacher-tools-btn {
@@ -125,17 +127,14 @@
       transition: background 0.3s ease;
     }
 
-    .avatar {
-      width: 57px;
-      height: 56px;
-      border-radius: 14px;
-      background: linear-gradient(135deg,var(--brand),#1bb1e9);
-      display: grid;
-      place-items: center;
-      color: white;
-      font-weight: 700;
-      font-size: 20px;
-      box-shadow: 0 8px 22px rgba(36,191,240,0.25);
+    .welcome {
+      margin-bottom: 12px;
+    }
+
+    .welcome p {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 14px;
     }
 
     form { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
@@ -180,47 +179,226 @@
       transform: translateY(-1px);
     }
 
-    /* ---------- Toggle Button ---------- */
-    .toggle-btn {
-      width: 44px;
-      height: 24px;
-      border-radius: 50px;
-      border: 2px solid var(--border);
-      background: var(--input-bg);
-      position: relative;
+    .error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+      padding: 12px;
+      border-radius: 8px;
+      margin: 0;
+    }
+
+    .create-account-link {
+      text-align: center;
+      margin-top: 12px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .create-account-link a {
+      color: var(--brand);
+      text-decoration: none;
+      font-weight: 600;
       cursor: pointer;
-      transition: 0.25s ease;
     }
 
-    .toggle-btn::after {
-      content: "";
-      position: absolute;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: var(--brand);
-      top: 2px;
-      left: 2px;
-      transition: 0.25s ease;
+    .create-account-link a:hover {
+      text-decoration: underline;
     }
 
-    .light-mode .toggle-btn::after {
-      transform: translateX(20px);
+    /* ---------- Theme Toggle (Corner) ---------- */
+    .theme-toggle-corner {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 100;
+    }
+
+    .theme-toggle-corner:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+    }
+
+    .theme-icon {
+      width: 24px;
+      height: 24px;
+      transition: 0.3s;
+    }
+
+    /* Sun icon (shown in dark mode) */
+    .sun-icon {
+      display: block;
+    }
+
+    .moon-icon {
+      display: none;
+    }
+
+    .light-mode .sun-icon {
+      display: none;
+    }
+
+    .light-mode .moon-icon {
+      display: block;
+    }
+
+    /* ---------- MODAL ---------- */
+    .modal-bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      backdrop-filter: blur(4px);
+    }
+
+    .modal-box {
+      background: var(--card);
+      padding: 30px;
+      border-radius: var(--rounded);
+      width: 90%;
+      max-width: 400px;
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+
+    .modal-box h3 {
+      margin: 0 0 20px 0;
+      color: var(--text);
+      font-size: 22px;
+    }
+
+    .modal-box .input {
+      margin-bottom: 12px;
+    }
+
+    .modal-box button[type="submit"] {
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    .close-modal {
+      width: 100%;
+      background: #d9534f;
+      margin-top: 10px;
+    }
+
+    .close-modal:hover {
+      background: #c9302c;
+    }
+
+    /* Flash Messages */
+    .flash-messages {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 3000;
+      max-width: 400px;
+    }
+
+    .flash-message {
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+      animation: slideIn 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 500;
+    }
+
+    .flash-message.success {
+      background: rgba(34, 197, 94, 0.95);
+      color: white;
+      border: 1px solid rgba(34, 197, 94, 1);
+    }
+
+    .flash-message.error {
+      background: rgba(239, 68, 68, 0.95);
+      color: white;
+      border: 1px solid rgba(239, 68, 68, 1);
+    }
+
+    .flash-message.info {
+      background: rgba(36, 191, 240, 0.95);
+      color: white;
+      border: 1px solid rgba(36, 191, 240, 1);
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes fadeOut {
+      to {
+        opacity: 0;
+        transform: translateX(400px);
+      }
     }
 
     @media (max-width: 900px) {
       .card { grid-template-columns: 1fr; max-width: 420px; }
       .promo { order: 2; text-align: center; }
       .form-wrap { order: 1; }
+      .theme-toggle-corner {
+        top: 16px;
+        right: 16px;
+      }
     }
   </style>
 </head>
 
 <body>
+  <!-- Flash Messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages">
+        {% for category, message in messages %}
+          <div class="flash-message {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Theme Toggle Button in Corner -->
+  <button class="theme-toggle-corner" id="theme-toggle" aria-label="Toggle theme">
+    <svg class="theme-icon sun-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #fbbf24;">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/>
+    </svg>
+    <svg class="theme-icon moon-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #60a5fa;">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  </button>
+
   <main class="card" role="main">
     <section class="promo">
       <div class="logo">
-        <img src="{{ url_for('static', filename='ahs_logo.png') }}" alt="Academy High School Bank" style="height: 150px;">
+        <img src="/images/ahs_logo.png" alt="Academy High School Bank" style="height: 150px;">
         <div>
           <h1>Welcome to <br>Academy High School's Branch of Vex Bank</h1>
         </div>
@@ -231,31 +409,57 @@
     </section>
 
     <section class="form-wrap">
-      <button class="toggle-btn" id="theme-toggle"></button>
-
       <div class="welcome">
-        <div class="avatar">&nbsp;&nbsp;Vex &nbsp;Bank</div>
-        <div>
-          <h2>Sign in to your account</h2>
-          <p>Use your classroom username. Need help? Ask your teacher.</p>
-        </div>
+        <h2>Sign in to your account</h2>
+        <p>Use your classroom username. Need help? Ask your teacher.</p>
       </div>
-
-      <h1>Account Login</h1>
-
-      {% if error %}
-        <p class="error">{{ error }}</p>
-      {% endif %}
 
       <form method="POST">
         <div class="input"><input type="text" name="username" placeholder="Username" required></div>
         <div class="input"><input type="password" name="password" placeholder="Password" required></div>
         <button type="submit">Login</button>
       </form>
+
+      <div class="create-account-link">
+        Don't have an account? <a onclick="openModal()">Create one</a>
+      </div>
     </section>
   </main>
 
+  <!-- CREATE ACCOUNT MODAL -->
+  <div id="modal-bg" class="modal-bg">
+    <div class="modal-box">
+      <h3>Create Student Account</h3>
+
+      <form method="POST" action="/create_student_account" id="create-form">
+        <div class="input">
+          <input name="new_username" id="new_username" placeholder="Username" required>
+        </div>
+        <div class="input">
+          <input name="new_password" id="new_password" type="password" placeholder="Password" required>
+        </div>
+        <div class="input">
+          <input name="confirm_password" id="confirm_password" type="password" placeholder="Confirm Password" required>
+        </div>
+
+        <button type="submit">Create Account</button>
+        <button type="button" class="close-modal" onclick="closeModal()">Cancel</button>
+      </form>
+    </div>
+  </div>
+
   <script>
+    // Auto-dismiss flash messages
+    document.addEventListener('DOMContentLoaded', () => {
+      const flashMessages = document.querySelectorAll('.flash-message');
+      flashMessages.forEach((msg, index) => {
+        setTimeout(() => {
+          msg.style.animation = 'fadeOut 0.3s ease forwards';
+          setTimeout(() => msg.remove(), 300);
+        }, 3000 + (index * 500));
+      });
+    });
+
     const toggleBtn = document.getElementById("theme-toggle");
     const root = document.getElementById("html-root");
 
@@ -267,11 +471,12 @@
         root.classList.remove("light-mode");
         root.classList.add("dark-mode");
       }
-      void root.offsetWidth; /* force repaint */
+      void root.offsetWidth;
     }
 
+    // Apply initial theme from server
     document.addEventListener("DOMContentLoaded", () => {
-      const saved = "{{ session.get('theme', 'dark') }}";
+      const saved = "dark"; // Replace with {{ session.get('theme', 'dark') }}
       applyTheme(saved);
     });
 
@@ -280,6 +485,34 @@
       if (r.ok) {
         const data = await r.json();
         applyTheme(data.theme);
+      }
+    });
+
+    // Modal functions
+    function openModal() {
+      document.getElementById("modal-bg").style.display = "flex";
+    }
+
+    function closeModal() {
+      document.getElementById("modal-bg").style.display = "none";
+      document.getElementById("create-form").reset();
+    }
+
+    // Password validation
+    document.getElementById("create-form").addEventListener("submit", function(e) {
+      const password = document.getElementById("new_password").value;
+      const confirm = document.getElementById("confirm_password").value;
+
+      if (password !== confirm) {
+        e.preventDefault();
+        alert("Passwords do not match!");
+      }
+    });
+
+    // Close modal when clicking outside
+    document.getElementById("modal-bg").addEventListener("click", function(e) {
+      if (e.target === this) {
+        closeModal();
       }
     });
   </script>

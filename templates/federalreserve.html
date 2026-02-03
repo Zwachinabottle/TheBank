@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="{{ session.get('theme', 'dark') }}-mode">
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
 <head>
   <meta charset="UTF-8">
   <title>Federal Reserve</title>
@@ -7,53 +7,15 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
   <style>
-    /* ---------- NAV BUTTONS ---------- */
-.nav-button {
-  position: fixed;
-  padding: 10px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-  color: var(--text);
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  transition: all 0.2s ease;
-  z-index: 1000;
-}
-
-.nav-button:hover {
-  background: var(--bg3);
-  transform: translateY(-2px);
-}
-
-/* Positions */
-.nav-teacher {
-  top: 24px;
-  left: 24px;
-}
-
-.nav-account {
-  top: 24px;
-  right: 24px;
-}
-
-.nav-login {
-  bottom: 24px;
-  right: 24px;
-}
-    /* ---------- THEME VARIABLES ---------- */
     :root {
       --brand: #24bff0;
-
       --bg: #11191c;
       --bg2: #1a2c32;
       --bg3: #182429;
       --text: #d7e6eb;
       --text-muted: #9db6bd;
+      --input-bg: #243238;
       --border: #2e4b52;
-
       --rounded: 14px;
     }
 
@@ -63,141 +25,711 @@
       --bg3: #ffffff;
       --text: #1b1f21;
       --text-muted: #556166;
+      --input-bg: #ecf1f3;
       --border: #c7d2d6;
     }
 
-    /* ---------- BASE ---------- */
     body {
       margin: 0;
-      min-height: 100vh;
+      height: 100vh;
+      overflow: hidden;
       font-family: "Inter", system-ui;
       color: var(--text);
-
-      background:
-        radial-gradient(800px 400px at 15% 10%, rgba(36,191,240,0.18), transparent 40%),
-        radial-gradient(600px 300px at 85% 90%, rgba(36,191,240,0.14), transparent 35%),
-        linear-gradient(180deg, var(--bg), var(--bg3));
-
+      background: radial-gradient(800px 400px at 15% 10%, rgba(36,191,240,0.18), transparent 40%),
+                  radial-gradient(600px 300px at 85% 90%, rgba(36,191,240,0.14), transparent 35%),
+                  linear-gradient(180deg, var(--bg), var(--bg3));
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 40px;
+      box-sizing: border-box;
     }
 
-    /* ---------- CARD ---------- */
-    .reserve-card {
+    /* Main Container */
+    .reserve-container {
+      position: relative;
       width: 100%;
       max-width: 900px;
+      height: calc(100vh - 80px);
+      max-height: 700px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Slides */
+    .slider {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      border-radius: 18px;
+      flex: 1;
+    }
+
+    .slide {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
       padding: 40px;
       border-radius: 18px;
       background: var(--bg3);
       border: 1px solid var(--border);
       box-shadow: 0 20px 60px rgba(0,0,0,0.45);
-    }
-
-    h2 {
-      margin-top: 0;
-      font-size: 24px;
-      text-align: center;
-    }
-
-    /* ---------- SLIDER ---------- */
-    .slider {
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+      display: none;
+      flex-direction: column;
+      box-sizing: border-box;
       overflow: hidden;
     }
 
-    .slide {
-      display: none;
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      position: relative;
+      z-index: 1;
+      display: flex;
+    }
+
+    h2 {
+      margin: 0 0 30px 0;
+      font-size: 28px;
       text-align: center;
     }
 
-    .slide.active {
-      display: block;
-    }
-
-    /* ---------- PIG VISUAL ---------- */
-   .pig-container {
-  width: 420px;
-  height: 420px;
-  margin: 40px auto;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-/* GOLD LIQUID */
-.pig-fill {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 50%; /* TEMP test value, see sanity check below */
-
-  background: linear-gradient(
-    180deg,
-    #ffe08a 0%,
-    #e6b94a 60%,
-    #b8891b 100%
-  );
-
-  transition: height 0.9s ease;
-  z-index: 1;
-
-  -webkit-mask-image: url("/static/PiggyBankMask.png");
-  -webkit-mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  -webkit-mask-size: contain;
-  -webkit-mask-mode: luminance;
-
-  mask-image: url("/static/PiggyBankMask.png");
-  mask-repeat: no-repeat;
-  mask-position: center;
-  mask-size: contain;
-  mask-mode: luminance;
+    /* Slide 1: Pig Bank Reserves */
+    .pig-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      padding-bottom: 20px;
 }
 
-/* OUTLINE ON TOP */
-.pig-outline {
-  width: 100%;
-  position: relative;
-  z-index: 2;
-  pointer-events: none;
+    .pig-visual {
+      width: 300px;
+      height: 300px;
 }
 
 
     .reserve-amount {
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 600;
-      margin-top: 12px;
+      margin-top: 20px;
+      color: var(--brand);
     }
 
-    /* ---------- STATS ---------- */
+    /* Slide 2: Banker Utilities */
+    .utility-section {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 10px;
+    }
+
+    .utility-section::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .utility-section::-webkit-scrollbar-track {
+      background: var(--bg2);
+      border-radius: 4px;
+    }
+
+    .utility-section::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    .utility-section::-webkit-scrollbar-thumb:hover {
+      background: var(--brand);
+    }
+
+    .utility-box {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--rounded);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .utility-box h3 {
+      margin: 0 0 15px 0;
+      font-size: 18px;
+    }
+
+    .utility-table {
+      width: 100%;
+    }
+
+    .utility-table td {
+      padding: 8px 4px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .utility-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .approve-btn, .deny-btn {
+      padding: 6px 12px;
+      font-size: 13px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: 0.2s ease;
+      margin-right: 6px;
+    }
+
+    .approve-btn {
+      background: rgba(34, 197, 94, 0.2);
+      color: #22c55e;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .approve-btn:hover {
+      background: rgba(34, 197, 94, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .deny-btn {
+      background: rgba(239, 68, 68, 0.2);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .deny-btn:hover {
+      background: rgba(239, 68, 68, 0.3);
+      transform: translateY(-1px);
+    }
+
+    /* Slide 3: Active Loans */
+    
+    /* Slide 4: System Overview */
+    .stats-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
     .stats-box {
       background: var(--bg2);
       border: 1px solid var(--border);
       border-radius: var(--rounded);
-      padding: 24px;
-      max-width: 420px;
-      margin: 20px auto 0;
+      padding: 30px;
+      width: 100%;
+      max-width: 500px;
     }
 
     .stat-line {
       display: flex;
       justify-content: space-between;
-      padding: 6px 0;
+      padding: 12px 0;
       border-bottom: 1px solid var(--border);
-      font-size: 15px;
+      font-size: 16px;
     }
 
     .stat-line:last-child {
       border-bottom: none;
     }
 
-    /* ---------- NAV ---------- */
-    .slider-nav {
+    .stat-line span:first-child {
+      color: var(--text-muted);
+    }
+
+    .stat-line span:last-child {
+      font-weight: 600;
+    }
+
+    /* Slide 5: All Accounts */
+    .accounts-section {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 10px;
+    }
+
+    .accounts-section::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .accounts-section::-webkit-scrollbar-track {
+      background: var(--bg2);
+      border-radius: 4px;
+    }
+
+    .accounts-section::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    .accounts-section::-webkit-scrollbar-thumb:hover {
+      background: var(--brand);
+    }
+
+    .accounts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 15px;
+    }
+
+    .account-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--rounded);
+      padding: 15px;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    .account-card:hover {
+      border-color: var(--brand);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(36, 191, 240, 0.2);
+    }
+
+    .account-card .name {
+      font-weight: 600;
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    .account-card .balance {
+      font-size: 20px;
+      color: var(--brand);
+      margin-bottom: 8px;
+    }
+
+    .account-card .role {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: inline-block;
+      padding: 3px 8px;
+      background: var(--input-bg);
+      border-radius: 6px;
+    }
+
+    /* Slide 6: Logs */
+    .logs-section {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 10px;
+    }
+
+    .logs-section::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .logs-section::-webkit-scrollbar-track {
+      background: var(--bg2);
+      border-radius: 4px;
+    }
+
+    .logs-section::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    .logs-section::-webkit-scrollbar-thumb:hover {
+      background: var(--brand);
+    }
+
+    .logs-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .logs-table th {
+      background: var(--bg2);
+      padding: 12px 8px;
+      text-align: left;
+      font-weight: 600;
+      border-bottom: 2px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .logs-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+
+    .logs-table tr:hover {
+      background: var(--bg2);
+    }
+
+    .log-user {
+      font-weight: 600;
+    }
+
+    .log-action {
+      color: var(--text-muted);
+    }
+
+    .log-acceptance {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .log-acceptance.approved {
+      background: rgba(34, 197, 94, 0.2);
+      color: #22c55e;
+    }
+
+    .log-acceptance.denied {
+      background: rgba(239, 68, 68, 0.2);
+      color: #ef4444;
+    }
+
+    .log-acceptance.pending {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+    }
+
+    /* Slide 7: Bank Administration */
+    .bank-lock-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg3);
       display: flex;
+      align-items: center;
       justify-content: center;
+      z-index: 10;
+    }
+
+    .bank-lock-content {
+      text-align: center;
+      max-width: 400px;
+      padding: 40px;
+    }
+
+    .bank-lock-content h3 {
+      margin: 0 0 10px 0;
+      font-size: 24px;
+    }
+
+    .bank-admin-content {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .bank-admin-content .stats-box {
+      animation: slideIn 0.3s ease;
+    }
+
+    .bank-admin-content h4 {
+      color: var(--brand);
+      font-weight: 600;
+    }
+
+    .bank-admin-content .input {
+      background: var(--input-bg);
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      transition: 0.2s;
+    }
+
+    .bank-admin-content .input:focus-within {
+      border-color: var(--brand);
+      box-shadow: 0 0 10px rgba(36, 191, 240, 0.18);
+    }
+
+    .bank-admin-content .input input {
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 15px;
+      width: 100%;
+    }
+
+    .bank-admin-content button {
+      background: var(--brand);
+      border: 0;
+      padding: 12px 16px;
+      border-radius: 10px;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+
+    .bank-admin-content button:hover {
+      box-shadow: 0 0 16px rgba(36, 191, 240, 0.35);
+      transform: translateY(-1px);
+    }
+
+    /* Account Detail Modal */
+    .modal-bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+
+    .modal-bg.active {
+      display: flex;
+    }
+
+    .modal-box {
+      background: var(--bg3);
+      padding: 30px;
+      border-radius: var(--rounded);
+      width: 90%;
+      max-width: 600px;
+      max-height: 80vh;
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-box h3 {
+      margin: 0 0 20px 0;
+      text-align: center;
+    }
+
+    .modal-content {
+      overflow-y: auto;
+      flex: 1;
+      padding-right: 10px;
+    }
+
+    .modal-content::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .modal-content::-webkit-scrollbar-track {
+      background: var(--bg2);
+      border-radius: 4px;
+    }
+
+    .modal-content::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    .modal-content::-webkit-scrollbar-thumb:hover {
+      background: var(--brand);
+    }
+
+    .modal-detail {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-detail:last-child {
+      border-bottom: none;
+    }
+
+    .modal-detail .status-frozen {
+      color: #ef4444;
+      font-weight: 600;
+    }
+
+    .modal-detail .status-active {
+      color: #22c55e;
+      font-weight: 600;
+    }
+
+    .modal-tabs {
+      display: flex;
       gap: 10px;
-      margin-top: 28px;
+      margin-bottom: 20px;
+      border-bottom: 2px solid var(--border);
+    }
+
+    .modal-tab {
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-weight: 600;
+      border-bottom: 3px solid transparent;
+      transition: 0.2s ease;
+    }
+
+    .modal-tab.active {
+      color: var(--brand);
+      border-bottom-color: var(--brand);
+    }
+
+    .modal-tab:hover {
+      color: var(--text);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .transactions-list {
+      max-height: 300px;
+      overflow-y: auto;
+      padding-right: 10px;
+    }
+
+    .transactions-list::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .transactions-list::-webkit-scrollbar-track {
+      background: var(--bg2);
+      border-radius: 4px;
+    }
+
+    .transactions-list::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    .transactions-list::-webkit-scrollbar-thumb:hover {
+      background: var(--brand);
+    }
+
+    .transaction-item {
+      padding: 12px;
+      margin-bottom: 8px;
+      background: var(--bg2);
+      border-radius: 8px;
+      border-left: 3px solid var(--border);
+    }
+
+    .transaction-item.received {
+      border-left-color: #22c55e;
+    }
+
+    .transaction-item.sent {
+      border-left-color: #ef4444;
+    }
+
+    .transaction-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .transaction-amount {
+      font-weight: 600;
+      font-size: 16px;
+    }
+
+    .transaction-amount.positive {
+      color: #22c55e;
+    }
+
+    .transaction-amount.negative {
+      color: #ef4444;
+    }
+
+    .transaction-details {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .transaction-comment {
+      font-size: 13px;
+      margin-top: 4px;
+      font-style: italic;
+    }
+
+    .close-modal {
+      width: 100%;
+      padding: 12px;
+      background: var(--brand);
+      border: none;
+      border-radius: 10px;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 20px;
+      transition: 0.2s ease;
+    }
+
+    .close-modal:hover {
+      box-shadow: 0 0 16px rgba(36,191,240,0.35);
+      transform: translateY(-1px);
+    }
+
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: var(--text-muted);
+    }
+
+    /* Navigation Arrows */
+    .arrow {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 50px;
+      height: 50px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.2s ease;
+      z-index: 10;
+    }
+
+    .arrow:hover {
+      background: var(--bg3);
+      border-color: var(--brand);
+      transform: translateY(-50%) scale(1.05);
+    }
+
+    .arrow-left {
+      left: -70px;
+    }
+
+    .arrow-right {
+      right: -70px;
+    }
+
+    /* Dots Navigation */
+    .slider-nav {
+      position: absolute;
+      bottom: -50px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
     }
 
     .dot {
@@ -206,122 +738,906 @@
       border-radius: 50%;
       background: var(--border);
       cursor: pointer;
+      transition: 0.2s ease;
     }
 
     .dot.active {
       background: var(--brand);
+      width: 30px;
+      border-radius: 5px;
+    }
+
+    /* Theme Toggle */
+    .theme-toggle-corner {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1600;
+    }
+
+    .theme-toggle-corner:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+    }
+
+    .theme-icon {
+      width: 24px;
+      height: 24px;
+      transition: 0.3s;
+    }
+
+    .sun-icon {
+      display: block;
+    }
+
+    .moon-icon {
+      display: none;
+    }
+
+    .light-mode .sun-icon {
+      display: none;
+    }
+
+    .light-mode .moon-icon {
+      display: block;
+    }
+
+    /* Back Button */
+    .back-btn {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1600;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .back-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+      border-color: var(--brand);
+      background: rgba(36,191,240,0.1);
+    }
+
+    /* Flash Messages */
+    .flash-messages {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 3000;
+      max-width: 400px;
+    }
+
+    .flash-message {
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+      animation: slideIn 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 500;
+    }
+
+    .flash-message.success {
+      background: rgba(34, 197, 94, 0.95);
+      color: white;
+      border: 1px solid rgba(34, 197, 94, 1);
+    }
+
+    .flash-message.error {
+      background: rgba(239, 68, 68, 0.95);
+      color: white;
+      border: 1px solid rgba(239, 68, 68, 1);
+    }
+
+    .flash-message.info {
+      background: rgba(36, 191, 240, 0.95);
+      color: white;
+      border: 1px solid rgba(36, 191, 240, 1);
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes fadeOut {
+      to {
+        opacity: 0;
+        transform: translateX(400px);
+      }
+    }
+
+    @media (max-width: 1100px) {
+      .arrow {
+        display: none;
+      }
     }
   </style>
 </head>
 
 <body>
-  <a href="/teacher-tools" class="nav-button nav-teacher">
-  Teacher Tools
-</a>
-
-<a href="/account" class="nav-button nav-account">
-  Account
-</a>
-
-<main class="reserve-card">
-  <div class="slider">
-
-    <!-- SLIDE 1: PIG -->
-    <section class="slide active">
-      <h2>Federal Reserves</h2>
-
-     <div class="pig-container">
-  <svg viewBox="0 0 100 100" width="100%" height="100%">
-    
-    <!-- MASK -->
-    <defs>
-      <mask id="pigMask">
-        <image
-          href="{{ url_for('static', filename='PiggyBankMask.png') }}"
-          x="0"
-          y="0"
-          width="100"
-          height="100"
-          preserveAspectRatio="xMidYMid meet"
-        />
-      </mask>
-    </defs>
-
-    <!-- GOLD FILL -->
-    <rect
-      x="0"
-      y="{{ 100 - ([((data.Reserves|float / data.Total|float) * 100), 100] | min) }}"
-      width="100"
-      height="{{ [((data.Reserves|float / data.Total|float) * 100), 100] | min }}"
-      fill="url(#goldGradient)"
-      mask="url(#pigMask)"
-    />
-
-    <!-- GOLD GRADIENT -->
-    <defs>
-      <linearGradient id="goldGradient" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#ffe08a"/>
-        <stop offset="60%" stop-color="#e6b94a"/>
-        <stop offset="100%" stop-color="#b8891b"/>
-      </linearGradient>
-    </defs>
-
-    <!-- OUTLINE -->
-    <image
-      href="{{ url_for('static', filename='PiggyBankGlass.png') }}"
-      x="0"
-      y="0"
-      width="100"
-      height="100"
-      preserveAspectRatio="xMidYMid meet"
-    />
-  </svg>
-</div>
-      <div class="reserve-amount">
-        ${{ data.Reserves }} held in reserve
+  <!-- Flash Messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages">
+        {% for category, message in messages %}
+          <div class="flash-message {{ category }}">{{ message }}</div>
+        {% endfor %}
       </div>
-    </section>
+    {% endif %}
+  {% endwith %}
 
-    <!-- SLIDE 2: STATS -->
-    <section class="slide">
-      <h2>System Overview</h2>
+  <!-- Theme Toggle -->
+  <button class="theme-toggle-corner" id="theme-toggle" aria-label="Toggle theme">
+    <svg class="theme-icon sun-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #fbbf24;">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/>
+    </svg>
+    <svg class="theme-icon moon-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #60a5fa;">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  </button>
 
-      <div class="stats-box">
-        <div class="stat-line"><span>Total Money</span><span>${{ data.Total }}</span></div>
-        <div class="stat-line"><span>Reserves</span><span>${{ data.Reserves }}</span></div>
-        <div class="stat-line"><span>Liquidity</span><span>${{ data.Liquidity }}</span></div>
-        <div class="stat-line"><span>Loaned</span><span>${{ data.Loaned }}</span></div>
-        <div class="stat-line"><span>Student Funds</span><span>${{ data.Student }}</span></div>
-        <div class="stat-line"><span>Teacher Funds</span><span>${{ data.Teacher }}</span></div>
-        <div class="stat-line"><span>Cash Removed</span><span>${{ data.Cash }}</span></div>
-      </div>
-    </section>
+  <!-- Back Button -->
+  <a href="{{ url_for('teacher_tools') }}" class="back-btn" aria-label="Back to teacher tools">
+    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path d="M19 12H5M12 19l-7-7 7-7"/>
+    </svg>
+  </a>
 
+  <div class="reserve-container">
+    <!-- Left Arrow -->
+    <div class="arrow arrow-left" onclick="previousSlide()">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </div>
+
+    <!-- Right Arrow -->
+    <div class="arrow arrow-right" onclick="nextSlide()">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M9 18l6-6-6-6"/>
+      </svg>
+    </div>
+
+    <div class="slider">
+      <!-- SLIDE 1: Bank Reserves -->
+      <section class="slide active">
+        <h2>Federal Reserves</h2>
+        <div class="pig-container">
+          <div class="pig-visual">
+            <svg viewBox="0 0 100 100" width="100%" height="100%">
+              <defs>
+                <mask id="pigMask">
+                  <image
+                    href="{{ url_for('static', filename='PiggyBankMask.png') }}"
+                    x="0" y="0" width="100" height="100"
+                    preserveAspectRatio="xMidYMid meet"
+                  />
+                </mask>
+                <linearGradient id="goldGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#ffe08a"/>
+                  <stop offset="60%" stop-color="#e6b94a"/>
+                  <stop offset="100%" stop-color="#b8891b"/>
+                </linearGradient>
+              </defs>
+
+              <rect
+                x="0"
+                y="{{ 100 - ([((data.Reserves|float / data.Total|float) * 100), 100] | min) }}"
+                width="100"
+                height="{{ [((data.Reserves|float / data.Total|float) * 100), 100] | min }}"
+                fill="url(#goldGradient)"
+                mask="url(#pigMask)"
+              />
+
+              <image
+                href="{{ url_for('static', filename='PiggyBankGlass.png') }}"
+                x="0" y="0" width="100" height="100"
+                preserveAspectRatio="xMidYMid meet"
+              />
+            </svg>
+          </div>
+          <div class="reserve-amount">
+            ${{ data.Reserves }} held in reserve
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 2: Banker Utilities -->
+      <section class="slide">
+        <h2>Banker Utilities</h2>
+        <div class="utility-section">
+          <!-- Pending Deletions -->
+          <div class="utility-box">
+            <h3>Pending Account Deletions</h3>
+            {% if pending_deletions %}
+            <table class="utility-table">
+              {% for deletion in pending_deletions %}
+              <tr>
+                <td><b>{{ deletion.Username }}</b></td>
+                <td style="color: var(--text-muted); font-size: 13px;">{{ deletion.Reason }}</td>
+                <td style="text-align: right;">
+                  <form method="POST" action="/approve_deletion/{{ deletion.row }}" style="display:inline;">
+                    <button type="submit" class="approve-btn">Approve</button>
+                  </form>
+                  <form method="POST" action="/deny_deletion/{{ deletion.row }}" style="display:inline;">
+                    <button type="submit" class="deny-btn">Deny</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+            {% else %}
+            <p style="color: var(--text-muted); text-align: center;">No pending deletions</p>
+            {% endif %}
+          </div>
+
+          <!-- Pending Loans -->
+          <div class="utility-box">
+            <h3>Pending Loan Applications</h3>
+            {% if pending_loans %}
+            <table class="utility-table">
+              {% for loan in pending_loans %}
+              <tr>
+                <td><b>{{ loan.Requester }}</b></td>
+                <td>${{ "%.2f"|format(loan.Amount) }} for {{ loan.Weeks }} weeks</td>
+                <td style="color: var(--text-muted); font-size: 12px;">{{ loan.Reason }}</td>
+                <td style="text-align: right;">
+                  <form method="POST" action="/approve_loan/{{ loan.row }}" style="display:inline;">
+                    <button type="submit" class="approve-btn">Approve</button>
+                  </form>
+                  <form method="POST" action="/deny_loan/{{ loan.row }}" style="display:inline;">
+                    <button type="submit" class="deny-btn">Deny</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+            {% else %}
+            <p style="color: var(--text-muted); text-align: center;">No pending loans</p>
+            {% endif %}
+          </div>
+
+          <!-- Cash Burn Requests -->
+          <div class="utility-box">
+            <h3>Cash Burn Requests</h3>
+            {% if pending_cashburns %}
+            <table class="utility-table">
+              {% for burn in pending_cashburns %}
+              <tr>
+                <td><b>{{ burn.Requester }}</b></td>
+                <td>${{ "%.2f"|format(burn.Amount) }}</td>
+                <td style="color: var(--text-muted); font-size: 13px;">{{ burn.Reason }}</td>
+                <td style="text-align: right;">
+                  <form method="POST" action="/approve_cashburn/{{ burn.row }}" style="display:inline;">
+                    <button type="submit" class="approve-btn">Approve</button>
+                  </form>
+                  <form method="POST" action="/deny_cashburn/{{ burn.row }}" style="display:inline;">
+                    <button type="submit" class="deny-btn">Deny</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+            {% else %}
+            <p style="color: var(--text-muted); text-align: center;">No pending cash burns</p>
+            {% endif %}
+          </div>
+
+          <!-- Teacher Account Requests -->
+          <div class="utility-box">
+            <h3>Teacher Account Requests</h3>
+            {% if pending_teacher_requests %}
+            <table class="utility-table">
+              {% for request in pending_teacher_requests %}
+              <tr>
+                <td><b>{{ request.Username }}</b></td>
+                <td style="color: var(--text-muted); font-size: 13px;">{{ request.Date }}</td>
+                <td style="text-align: right;">
+                  <form method="POST" action="/approve_teacher_request/{{ request.row }}" style="display:inline;">
+                    <button type="submit" class="approve-btn">Approve</button>
+                  </form>
+                  <form method="POST" action="/deny_teacher_request/{{ request.row }}" style="display:inline;">
+                    <button type="submit" class="deny-btn">Deny</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+            {% else %}
+            <p style="color: var(--text-muted); text-align: center;">No pending teacher requests</p>
+            {% endif %}
+          </div>
+          
+          <!-- Loan Timing Management -->
+          <div class="utility-box">
+            <h3>🕐 Loan Timing System</h3>
+            <div style="background: var(--bg3); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+              {% if project_end_date %}
+              <p style="margin: 0 0 10px 0;"><strong>Project End Date:</strong> {{ project_end_date }}</p>
+              <p style="margin: 0; color: var(--brand);"><strong>{{ weeks_remaining }} weeks</strong> remaining for all loans</p>
+              {% else %}
+              <p style="margin: 0; color: var(--text-muted);">No project end date set</p>
+              {% endif %}
+            </div>
+            
+            <form method="POST" action="/set_project_end_date" style="margin-bottom: 15px;">
+              <div style="display: flex; gap: 10px; align-items: flex-end;">
+                <div style="flex: 1;">
+                  <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Set Project End Date</label>
+                  <input type="date" name="end_date" required 
+                         style="width: 100%; padding: 8px; background: var(--input-bg); border: 1px solid var(--border); 
+                                border-radius: 8px; color: var(--text);">
+                </div>
+                <button type="submit" class="approve-btn" style="white-space: nowrap;">Set Date</button>
+              </div>
+            </form>
+            
+            <form method="POST" action="/process_loan_payments">
+              <button type="submit" class="deny-btn" style="width: 100%;">
+                ⚡ Process All Due Payments Now
+              </button>
+            </form>
+            <p style="font-size: 11px; color: var(--text-muted); margin: 10px 0 0 0; text-align: center;">
+              Automatically deducts weekly payments from borrowers
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 3: Active Loans -->
+      <section class="slide">
+        <h2>Active Loans</h2>
+        <div class="utility-section">
+          {% if all_loans %}
+          <div class="utility-box" style="max-width: 100%;">
+            <h3>All Loans</h3>
+            <table class="utility-table" style="font-size: 13px;">
+              <thead>
+                <tr>
+                  <th>Borrower</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th>Progress</th>
+                  <th>Next Payment</th>
+                  <th>Remaining</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for loan in all_loans %}
+                <tr>
+                  <td><strong>{{ loan.Requester }}</strong></td>
+                  <td>${{ "%.2f"|format(loan.Amount) }}</td>
+                  <td>
+                    {% if loan.Status == "Active" %}
+                    <span style="color: #22c55e;">● Active</span>
+                    {% elif loan.Status == "Pending" %}
+                    <span style="color: #f59e0b;">● Pending</span>
+                    {% elif loan.Status == "Paid" %}
+                    <span style="color: var(--text-muted);">✓ Paid</span>
+                    {% else %}
+                    <span style="color: var(--text-muted);">{{ loan.Status }}</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if loan.Status == "Active" %}
+                    <span style="color: var(--text-muted);">
+                      ${{ "%.2f"|format(loan.TotalPaid) }} / ${{ "%.2f"|format(loan.TotalAmount) }}
+                      ({{ loan.Weeks - loan.WeeksRemaining }}/{{ loan.Weeks }} weeks)
+                    </span>
+                    {% elif loan.Status == "Paid" %}
+                    <span style="color: #22c55e;">Complete</span>
+                    {% else %}
+                    <span style="color: var(--text-muted);">—</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if loan.NextPaymentDate and loan.Status == "Active" %}
+                      {% if loan.DaysUntilPayment is not none %}
+                        {% if loan.DaysUntilPayment < 0 %}
+                        <span style="color: #ef4444;">⚠️ OVERDUE ({{ -loan.DaysUntilPayment }} days)</span>
+                        {% elif loan.DaysUntilPayment == 0 %}
+                        <span style="color: #f59e0b;">⏰ TODAY</span>
+                        {% elif loan.DaysUntilPayment <= 3 %}
+                        <span style="color: #f59e0b;">{{ loan.NextPaymentDate }} ({{ loan.DaysUntilPayment }} days)</span>
+                        {% else %}
+                        <span style="color: var(--text-muted);">{{ loan.NextPaymentDate }}</span>
+                        {% endif %}
+                      {% else %}
+                      <span style="color: var(--text-muted);">{{ loan.NextPaymentDate }}</span>
+                      {% endif %}
+                    {% else %}
+                    <span style="color: var(--text-muted);">—</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if loan.Status == "Active" %}
+                    <span style="color: var(--brand);">
+                      <strong>${{ "%.2f"|format(loan.RemainingAmount) }}</strong> 
+                      ({{ loan.WeeksRemaining }} weeks)
+                    </span>
+                    {% else %}
+                    <span style="color: var(--text-muted);">—</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p style="color: var(--text-muted); text-align: center;">No loans found</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <!-- SLIDE 4: System Overview -->
+      <section class="slide">
+        <h2>System Overview</h2>
+        <div class="stats-container">
+          <div class="stats-box">
+            <div class="stat-line"><span>Total Money</span><span>${{ data.Total }}</span></div>
+            <div class="stat-line"><span>Reserves</span><span>${{ data.Reserves }}</span></div>
+            <div class="stat-line"><span>Liquidity</span><span>${{ data.Liquidity }}</span></div>
+            <div class="stat-line"><span>Loaned</span><span>${{ data.Loaned }}</span></div>
+            <div class="stat-line"><span>Student Funds</span><span>${{ data.Student }}</span></div>
+            <div class="stat-line"><span>Teacher Funds</span><span>${{ data.Teacher }}</span></div>
+            <div class="stat-line"><span>Cash Removed</span><span>${{ data.Cash }}</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 5: All Accounts -->
+      <section class="slide">
+        <h2>All Accounts</h2>
+        <div class="accounts-section">
+          <div class="accounts-grid">
+            {% for u in users %}
+            <div class="account-card" 
+                 data-username="{{ u.Username }}" 
+                 data-balance="{{ u.Balance }}" 
+                 data-role="{{ u.Role }}" 
+                 data-frozen="{{ u.get('Frozen', 'No') }}">
+              <div class="name">{{ u.Username }}</div>
+              <div class="balance">${{ "%.2f"|format(u.Balance) }}</div>
+              <div class="role">{{ u.Role }}</div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 6: System Logs -->
+      <section class="slide">
+        <h2>System Logs</h2>
+        <div class="logs-section">
+          {% if logs %}
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Action</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in logs %}
+              <tr>
+                <td class="log-user">{{ log.User }}</td>
+                <td class="log-action">{{ log.Action }}</td>
+                <td>{{ log.Amount if log.Amount else '-' }}</td>
+                <td>
+                  <span class="log-acceptance {{ log.Acceptance.lower() }}">
+                    {{ log.Acceptance }}
+                  </span>
+                </td>
+                <td style="font-size: 12px; color: var(--text-muted);">{{ log.Date }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p style="color: var(--text-muted); text-align: center; padding: 40px;">No logs available</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <!-- SLIDE 7: Bank Administration (Password Protected) -->
+      <section class="slide">
+        <h2>🏦 Bank Administration</h2>
+        
+        <!-- Password Lock Overlay -->
+        <div id="bank-lock-overlay" class="bank-lock-overlay">
+          <div class="bank-lock-content">
+            <div style="font-size: 64px; margin-bottom: 20px;">🔒</div>
+            <h3>Restricted Access</h3>
+            <p style="color: var(--text-muted); margin-bottom: 30px;">This area is password protected</p>
+            
+            <form id="bank-password-form" onsubmit="unlockBankAdmin(event)">
+              <div class="input">
+                <input type="password" id="bank-admin-password" placeholder="Enter Bank Admin Password" required autocomplete="off">
+              </div>
+              <button type="submit">Unlock</button>
+            </form>
+            <p id="password-error" style="color: #ef4444; margin-top: 10px; display: none;">Incorrect password</p>
+          </div>
+        </div>
+
+        <!-- Bank Administration Content (Hidden until unlocked) -->
+        <div id="bank-admin-content" class="bank-admin-content" style="display: none;">
+          <div class="stats-container">
+            <div class="stats-box" style="max-width: 600px;">
+              
+              <!-- Bank Account Balance -->
+              <div class="stat-line" style="border-bottom: 2px solid var(--brand); padding-bottom: 20px; margin-bottom: 20px;">
+                <span style="font-size: 18px; font-weight: 600;">Bank Account Balance</span>
+                <span style="font-size: 24px; color: var(--brand); font-weight: 700;">${{ "%.2f"|format(bank_account.Balance|float) }}</span>
+              </div>
+
+              <!-- Create Money Section -->
+              <div style="margin-bottom: 30px;">
+                <h4 style="margin: 0 0 15px 0; color: var(--text);">💰 Create Money</h4>
+                <form method="POST" action="/create_bank_money">
+                  <input type="hidden" name="password" id="create-money-password">
+                  <div class="input" style="margin-bottom: 12px;">
+                    <input type="number" name="amount" step="0.01" min="0.01" placeholder="Amount" required>
+                  </div>
+                  <div class="input" style="margin-bottom: 12px;">
+                    <input type="text" name="reason" placeholder="Reason (e.g., Economic stimulus)" required>
+                  </div>
+                  <button type="submit" style="width: 100%;">Create Money</button>
+                </form>
+              </div>
+
+              <!-- Transfer from Bank Section -->
+              <div style="margin-bottom: 20px;">
+                <h4 style="margin: 0 0 15px 0; color: var(--text);">💸 Transfer from Bank</h4>
+                <form method="POST" action="/transfer_from_bank">
+                  <input type="hidden" name="password" id="transfer-password">
+                  <div class="input" style="margin-bottom: 12px;">
+                    <input type="text" name="recipient" placeholder="Recipient Username" required>
+                  </div>
+                  <div class="input" style="margin-bottom: 12px;">
+                    <input type="number" name="amount" step="0.01" min="0.01" placeholder="Amount" required>
+                  </div>
+                  <div class="input" style="margin-bottom: 12px;">
+                    <input type="text" name="reason" placeholder="Reason (e.g., Grant, reward)" required>
+                  </div>
+                  <button type="submit" style="width: 100%;">Transfer Money</button>
+                </form>
+              </div>
+
+              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border); text-align: center;">
+                <p style="color: var(--text-muted); font-size: 13px; margin: 0;">
+                  ⚠️ Use responsibly - creating too much money can cause inflation!
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Dots Navigation -->
+    <div class="slider-nav">
+      <span class="dot active" onclick="goToSlide(0)"></span>
+      <span class="dot" onclick="goToSlide(1)"></span>
+      <span class="dot" onclick="goToSlide(2)"></span>
+      <span class="dot" onclick="goToSlide(3)"></span>
+      <span class="dot" onclick="goToSlide(4)"></span>
+      <span class="dot" onclick="goToSlide(5)"></span>
+      <span class="dot" onclick="goToSlide(6)"></span>
+    </div>
   </div>
 
-  <!-- DOT NAV -->
-  <div class="slider-nav">
-    <span class="dot active"></span>
-    <span class="dot"></span>
+  <!-- Account Detail Modal -->
+  <div id="accountModal" class="modal-bg">
+    <div class="modal-box">
+      <h3 id="modalUsername">Account Details</h3>
+      
+      <div class="modal-tabs">
+        <button class="modal-tab active" onclick="switchTab('details')">Details</button>
+        <button class="modal-tab" onclick="switchTab('transactions')">Transactions</button>
+      </div>
+
+      <div class="modal-content">
+        <!-- Details Tab -->
+        <div id="detailsTab" class="tab-content active">
+          <div class="modal-detail">
+            <span>Balance:</span>
+            <span id="modalBalance">$0.00</span>
+          </div>
+          <div class="modal-detail">
+            <span>Role:</span>
+            <span id="modalRole">Student</span>
+          </div>
+          <div class="modal-detail">
+            <span>Status:</span>
+            <span id="modalStatus">Active</span>
+          </div>
+        </div>
+
+        <!-- Transactions Tab -->
+        <div id="transactionsTab" class="tab-content">
+          <div id="transactionsList" class="transactions-list">
+            <div class="loading">Loading transactions...</div>
+          </div>
+        </div>
+      </div>
+
+      <button class="close-modal" onclick="closeAccountModal()">Close</button>
+    </div>
   </div>
-</main>
 
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-  const slides = document.querySelectorAll(".slide");
-  const dots = document.querySelectorAll(".dot");
+  <script>
+    // Auto-dismiss flash messages
+    document.addEventListener('DOMContentLoaded', () => {
+      const flashMessages = document.querySelectorAll('.flash-message');
+      flashMessages.forEach((msg, index) => {
+        setTimeout(() => {
+          msg.style.animation = 'fadeOut 0.3s ease forwards';
+          setTimeout(() => msg.remove(), 300);
+        }, 3000 + (index * 500));
+      });
 
-  dots.forEach((dot, i) => {
-    dot.addEventListener("click", () => {
-      slides.forEach(s => s.classList.remove("active"));
-      dots.forEach(d => d.classList.remove("active"));
+      const slider = document.querySelector('.slider');
+      const slides = Array.from(document.querySelectorAll('.slide'));
 
-      slides[i].classList.add("active");
-      dots[i].classList.add("active");
+      // Set initial slide
+      if (slides.length > 0) {
+        slides[0].classList.add('active');
+        slides[0].style.display = 'flex';
+      }
     });
-  });
-});
-</script>
+    
+    let currentSlide = 0;
+    const slides = document.querySelectorAll('.slide');
+    const dots = document.querySelectorAll('.dot');
 
+    function goToSlide(index) {
+      slides[currentSlide].classList.remove('active');
+      slides[currentSlide].style.display = 'none';
+      dots[currentSlide].classList.remove('active');
+
+      currentSlide = index;
+
+      slides[currentSlide].classList.add('active');
+      slides[currentSlide].style.display = 'flex';
+      dots[currentSlide].classList.add('active');
+    }
+
+    function nextSlide() {
+      goToSlide((currentSlide + 1) % slides.length);
+    }
+
+    function previousSlide() {
+      goToSlide((currentSlide - 1 + slides.length) % slides.length);
+    }
+
+    // Bank Administration Password Unlock
+    async function unlockBankAdmin(event) {
+      event.preventDefault();
+      const password = document.getElementById('bank-admin-password').value;
+      const errorDiv = document.getElementById('password-error');
+      
+      try {
+        const response = await fetch('/verify_bank_password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'password=' + encodeURIComponent(password)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          // Hide lock overlay and show admin content
+          document.getElementById('bank-lock-overlay').style.display = 'none';
+          document.getElementById('bank-admin-content').style.display = 'flex';
+          
+          // Store password in hidden form inputs for subsequent operations
+          document.getElementById('create-money-password').value = password;
+          document.getElementById('transfer-password').value = password;
+          
+          // Clear password input
+          document.getElementById('bank-admin-password').value = '';
+        } else {
+          // Show error message
+          errorDiv.textContent = data.message || 'Incorrect password';
+          errorDiv.style.display = 'block';
+          
+          // Clear password input
+          document.getElementById('bank-admin-password').value = '';
+        }
+      } catch (error) {
+        errorDiv.textContent = 'Error verifying password. Please try again.';
+        errorDiv.style.display = 'block';
+      }
+    }
+
+    // Account modal
+    let currentUsername = '';
+
+    function switchTab(tabName) {
+      // Update tab buttons
+      document.querySelectorAll('.modal-tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      event.target.classList.add('active');
+
+      // Update tab content
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+
+      if (tabName === 'details') {
+        document.getElementById('detailsTab').classList.add('active');
+      } else if (tabName === 'transactions') {
+        document.getElementById('transactionsTab').classList.add('active');
+        loadTransactions(currentUsername);
+      }
+    }
+
+    async function loadTransactions(username) {
+      const transactionsList = document.getElementById('transactionsList');
+      transactionsList.innerHTML = '<div class="loading">Loading transactions...</div>';
+
+      try {
+        const response = await fetch(`/api/transactions/${username}`);
+        const transactions = await response.json();
+
+        if (transactions.length === 0) {
+          transactionsList.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 20px;">No transactions found</p>';
+          return;
+        }
+
+        let html = '';
+        transactions.forEach(t => {
+          const isSent = t.Sender === username;
+          const isReceived = t.Receiver === username;
+          const amount = parseFloat(t.Amount);
+          
+          html += `
+            <div class="transaction-item ${isSent ? 'sent' : 'received'}">
+              <div class="transaction-header">
+                <span>${isSent ? 'Sent to ' + t.Receiver : 'Received from ' + t.Sender}</span>
+                <span class="transaction-amount ${isSent ? 'negative' : 'positive'}">
+                  ${isSent ? '-' : '+'}$${amount.toFixed(2)}
+                </span>
+              </div>
+              <div class="transaction-details">${t.Date}</div>
+              ${t.Comment ? `<div class="transaction-comment">"${t.Comment}"</div>` : ''}
+            </div>
+          `;
+        });
+
+        transactionsList.innerHTML = html;
+      } catch (error) {
+        transactionsList.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 20px;">Error loading transactions</p>';
+      }
+    }
+
+    function openAccountModal(username, balance, role, frozen) {
+      currentUsername = username;
+      
+      document.getElementById('modalUsername').textContent = username;
+      document.getElementById('modalBalance').textContent = '$' + parseFloat(balance).toFixed(2);
+      document.getElementById('modalRole').textContent = role;
+      
+      const statusEl = document.getElementById('modalStatus');
+      if (frozen === 'Yes') {
+        statusEl.textContent = 'Frozen';
+        statusEl.className = 'status-frozen';
+      } else {
+        statusEl.textContent = 'Active';
+        statusEl.className = 'status-active';
+      }
+
+      // Reset to details tab
+      document.querySelectorAll('.modal-tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+      document.querySelectorAll('.modal-tab')[0].classList.add('active');
+      document.getElementById('detailsTab').classList.add('active');
+
+      document.getElementById('accountModal').classList.add('active');
+    }
+
+    function closeAccountModal() {
+      document.getElementById('accountModal').classList.remove('active');
+      currentUsername = '';
+    }
+
+    // Add click handlers to account cards
+    document.addEventListener('click', function(e) {
+      const card = e.target.closest('.account-card');
+      if (card) {
+        const username = card.dataset.username;
+        const balance = card.dataset.balance;
+        const role = card.dataset.role;
+        const frozen = card.dataset.frozen;
+        openAccountModal(username, balance, role, frozen);
+      }
+    });
+
+    // Close modal when clicking outside
+    document.getElementById('accountModal').addEventListener('click', function(e) {
+      if (e.target === this) {
+        closeAccountModal();
+      }
+    });
+
+    // Theme toggle
+    const toggleBtn = document.getElementById('theme-toggle');
+    const root = document.getElementById('html-root');
+
+    function applyTheme(theme) {
+      if (theme === 'light') {
+        root.classList.remove('dark-mode');
+        root.classList.add('light-mode');
+      } else {
+        root.classList.remove('light-mode');
+        root.classList.add('dark-mode');
+      }
+      void root.offsetWidth;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const saved = "{{ session.get('theme', 'dark') }}";
+      applyTheme(saved);
+    });
+
+    toggleBtn.addEventListener('click', async () => {
+      const res = await fetch('/toggle-theme', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        applyTheme(data.theme);
+      }
+    });
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') previousSlide();
+      if (e.key === 'ArrowRight') nextSlide();
+    });
+  </script>
 </body>
 </html>
