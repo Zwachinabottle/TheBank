@@ -127,6 +127,37 @@
       box-shadow:0 6px 20px rgba(0,0,0,0.18);
     }
 
+    /* CARD INFO REVEAL */
+    .card-info {
+      font-family: 'Courier New', monospace;
+      font-weight: 600;
+      color: var(--brand);
+      letter-spacing: 1px;
+      transition: all 0.3s ease;
+    }
+
+    .reveal-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+      cursor: pointer;
+      margin-left: 8px;
+      transition: all 0.2s ease;
+      color: var(--text-muted);
+      vertical-align: middle;
+    }
+
+    .reveal-btn:hover {
+      background: var(--input-bg);
+      border-color: var(--brand);
+      color: var(--brand);
+    }
+
+    .eye-icon {
+      display: block;
+    }
+
     /* LOANS */
     .loan-card {
       margin-top:25px;
@@ -511,15 +542,33 @@
 <div class="info-row">
   <div class="info-card">
     <h2>Available Balance</h2>
-    <p style="font-size:26px;font-weight:700">
-      <span class="dollar">$</span>{{ "%.2f"|format(balance) }}
+    <p style="font-size:26px;font-weight:700" id="balance-display">
+      <span class="dollar">$</span><span id="balance-amount">{{ "%.2f"|format(balance) }}</span>
     </p>
   </div>
 
   <div class="info-card">
     <h2>Account Details</h2>
-    <p>Card Number: <i>Coming soon</i></p>
-    <p>PIN: <i>Coming soon</i></p>
+    <p style="margin-bottom: 8px;">
+      <strong>Card Number:</strong> 
+      <span class="card-info" id="card-number" data-value="{{ card_number }}">••••-••••-••••-••••</span>
+      <button class="reveal-btn" onclick="toggleReveal('card-number')" aria-label="Toggle card number visibility">
+        <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      </button>
+    </p>
+    <p>
+      <strong>PIN:</strong> 
+      <span class="card-info" id="pin" data-value="{{ pin }}">••••</span>
+      <button class="reveal-btn" onclick="toggleReveal('pin')" aria-label="Toggle PIN visibility">
+        <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      </button>
+    </p>
   </div>
 </div>
 
@@ -546,7 +595,7 @@
 <div class="transaction-box">
   <h2>Past Transactions</h2>
   <div class="history-box">
-    <table>
+    <table id="transaction-list">
       {% for t in transactions %}
       <tr>
         <td>
@@ -585,11 +634,39 @@
 <div class="modal-overlay" id="transactionModal">
   <div class="modal">
     <h2>Make a Transaction</h2>
-    <form method="POST" action="{{ url_for('transfer') }}">
-      <input name="receiver" placeholder="Receiver Username" required>
-      <input name="amount" type="number" step="0.01" min="0.01" placeholder="Amount" required>
+    <form method="POST" action="{{ url_for('transfer') }}" id="transferForm">
+      <div style="position: relative;">
+        <input 
+          id="receiver-input" 
+          name="receiver" 
+          placeholder="Receiver Username" 
+          required
+          autocomplete="off">
+        <div id="username-feedback" style="
+          font-size: 12px;
+          margin-top: 2px;
+          margin-bottom: -8px;
+        "></div>
+      </div>
+      
+      <div style="position: relative;">
+        <input 
+          id="amount-input"
+          name="amount" 
+          type="number" 
+          step="0.01" 
+          min="0.01" 
+          placeholder="Amount" 
+          required>
+        <div id="amount-feedback" style="
+          font-size: 12px;
+          margin-top: 2px;
+          margin-bottom: -8px;
+        "></div>
+      </div>
+      
       <input name="comment" placeholder="Comment (optional)">
-      <button type="submit">Send</button>
+      <button type="submit" id="transfer-submit">Send</button>
       <button type="button" class="modal-close" onclick="closeTransaction()">Cancel</button>
     </form>
   </div>
@@ -602,6 +679,29 @@
 {% endif %}
 
 <script>
+// Toggle card info reveal
+function toggleReveal(elementId) {
+  const element = document.getElementById(elementId);
+  const actualValue = element.getAttribute('data-value');
+  const currentText = element.textContent;
+  
+  if (elementId === 'card-number') {
+    // Toggle between actual card number and masked version
+    if (currentText === '••••-••••-••••-••••') {
+      element.textContent = actualValue;
+    } else {
+      element.textContent = '••••-••••-••••-••••';
+    }
+  } else if (elementId === 'pin') {
+    // Toggle between actual PIN and masked version
+    if (currentText === '••••') {
+      element.textContent = actualValue;
+    } else {
+      element.textContent = '••••';
+    }
+  }
+}
+
 // Auto-dismiss flash messages
 document.addEventListener('DOMContentLoaded', () => {
   const flashMessages = document.querySelectorAll('.flash-message');
@@ -618,6 +718,29 @@ function openTransaction(){
 }
 function closeTransaction(){
   document.getElementById("transactionModal").classList.remove("active");
+}
+
+// Toggle reveal for card number and PIN
+function toggleReveal(elementId) {
+  const element = document.getElementById(elementId);
+  const actualValue = element.getAttribute('data-value');
+  const currentText = element.textContent;
+  
+  if (elementId === 'card-number') {
+    // Card number toggle
+    if (currentText === '••••-••••-••••-••••') {
+      element.textContent = actualValue;
+    } else {
+      element.textContent = '••••-••••-••••-••••';
+    }
+  } else if (elementId === 'pin') {
+    // PIN toggle
+    if (currentText === '••••') {
+      element.textContent = actualValue;
+    } else {
+      element.textContent = '••••';
+    }
+  }
 }
 
 // Theme toggle
@@ -654,6 +777,282 @@ document.getElementById("transactionModal").addEventListener("click", function(e
     closeTransaction();
   }
 });
+
+// ==================== AJAX TRANSFER ENHANCEMENTS ====================
+
+// Toast Notification System
+function showToast(message, type = 'info') {
+  // Create toast container if it doesn't exist
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    `;
+    document.body.appendChild(container);
+  }
+  
+  const toast = document.createElement('div');
+  const colors = {
+    success: '#22c55e',
+    error: '#ef4444',
+    warning: '#f59e0b',
+    info: 'var(--brand)'
+  };
+  
+  toast.style.cssText = `
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-left: 4px solid ${colors[type]};
+    border-radius: 12px;
+    padding: 16px 20px;
+    min-width: 300px;
+    animation: slideIn 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  `;
+  
+  const icons = {
+    success: '✓',
+    error: '✕',
+    warning: '⚠',
+    info: 'ℹ'
+  };
+  
+  toast.innerHTML = `
+    <div style="font-size: 20px;">${icons[type]}</div>
+    <div style="flex: 1;">${message}</div>
+  `;
+  
+  container.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+// Add CSS animation
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes slideIn {
+    from { transform: translateX(400px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes slideOut {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(400px); opacity: 0; }
+  }
+`;
+document.head.appendChild(style);
+
+// Username validation (real-time)
+const receiverInput = document.getElementById('receiver-input');
+const usernameFeedback = document.getElementById('username-feedback');
+let usernameCheckTimeout;
+
+receiverInput.addEventListener('input', function() {
+  const username = this.value.trim();
+  
+  clearTimeout(usernameCheckTimeout);
+  
+  if (!username) {
+    usernameFeedback.textContent = '';
+    usernameFeedback.style.color = '';
+    return;
+  }
+  
+  usernameFeedback.textContent = 'Checking...';
+  usernameFeedback.style.color = 'var(--text-muted)';
+  
+  usernameCheckTimeout = setTimeout(async () => {
+    try {
+      const response = await fetch('/check_username', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username })
+      });
+      
+      const data = await response.json();
+      
+      if (data.exists) {
+        if (data.frozen) {
+          usernameFeedback.textContent = '⚠️ Account is frozen';
+          usernameFeedback.style.color = '#f59e0b';
+        } else {
+          usernameFeedback.textContent = '✓ User found';
+          usernameFeedback.style.color = '#22c55e';
+        }
+      } else {
+        usernameFeedback.textContent = '✕ User not found';
+        usernameFeedback.style.color = '#ef4444';
+      }
+    } catch (error) {
+      usernameFeedback.textContent = '';
+    }
+  }, 500); // 500ms debounce
+});
+
+// Amount validation (real-time)
+const amountInput = document.getElementById('amount-input');
+const amountFeedback = document.getElementById('amount-feedback');
+const currentBalance = {{ balance }};
+
+amountInput.addEventListener('input', function() {
+  const amount = parseFloat(this.value);
+  
+  if (!amount || amount <= 0) {
+    amountFeedback.textContent = '';
+    amountFeedback.style.color = '';
+    return;
+  }
+  
+  if (amount > currentBalance) {
+    amountFeedback.textContent = `⚠️ Insufficient funds (Balance: $${currentBalance.toFixed(2)})`;
+    amountFeedback.style.color = '#ef4444';
+  } else {
+    amountFeedback.textContent = `✓ Valid amount`;
+    amountFeedback.style.color = '#22c55e';
+  }
+});
+
+// AJAX Form Submission
+const transferForm = document.getElementById('transferForm');
+const transferSubmit = document.getElementById('transfer-submit');
+
+transferForm.addEventListener('submit', async function(e) {
+  e.preventDefault();
+  
+  // Disable submit button
+  const originalText = transferSubmit.textContent;
+  transferSubmit.disabled = true;
+  transferSubmit.textContent = 'Sending...';
+  
+  const formData = new FormData(this);
+  
+  try {
+    const response = await fetch(this.action, {
+      method: 'POST',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok && result.success) {
+      // Success!
+      showToast(result.message, 'success');
+      
+      // Update balance display
+      if (result.new_balance !== undefined) {
+        const balanceElement = document.getElementById('balance-amount');
+        balanceElement.textContent = result.new_balance.toFixed(2);
+        
+        // Add a subtle animation
+        balanceElement.style.transition = 'color 0.3s';
+        balanceElement.style.color = '#22c55e';
+        setTimeout(() => {
+          balanceElement.style.color = '';
+        }, 1000);
+      }
+      
+      // Clear form
+      this.reset();
+      usernameFeedback.textContent = '';
+      amountFeedback.textContent = '';
+      
+      // Close modal after a short delay
+      setTimeout(() => {
+        closeTransaction();
+      }, 500);
+      
+      // Refresh transaction list without page reload
+      setTimeout(() => {
+        refreshTransactions();
+      }, 600);
+    } else {
+      // Error
+      showToast(result.message || 'Transfer failed', 'error');
+      transferSubmit.disabled = false;
+      transferSubmit.textContent = originalText;
+    }
+  } catch (error) {
+    console.error('Transfer error:', error);
+    showToast('Network error. Please try again.', 'error');
+    transferSubmit.disabled = false;
+    transferSubmit.textContent = originalText;
+  }
+});
+
+// Function to refresh transaction list via AJAX
+async function refreshTransactions() {
+  try {
+    const response = await fetch('/get_transactions');
+    const data = await response.json();
+    
+    if (response.ok && data.transactions) {
+      const transactionList = document.getElementById('transaction-list');
+      
+      // Clear current list
+      transactionList.innerHTML = '';
+      
+      // Add new transactions
+      data.transactions.forEach(t => {
+        const row = document.createElement('tr');
+        
+        // Determine if sent or received
+        const isSent = t.Sender === data.username;
+        const transactionText = isSent 
+          ? `Sent to ${t.Receiver}` 
+          : `Received from ${t.Sender}`;
+        
+        // Build row HTML
+        row.innerHTML = `
+          <td>
+            <b>${transactionText}</b><br>
+            <span style="font-size:13px;color:var(--text-muted)">
+              ${t.Date}${t.Comment && t.Comment !== 'No comment' ? ` — "${t.Comment}"` : ''}
+            </span>
+          </td>
+          <td style="text-align:right;font-weight:700">
+            <span class="dollar">$</span>${t.Amount.toFixed(2)}
+          </td>
+        `;
+        
+        transactionList.appendChild(row);
+      });
+      
+      // Add subtle flash animation to show update
+      transactionList.style.transition = 'opacity 0.3s';
+      transactionList.style.opacity = '0.5';
+      setTimeout(() => {
+        transactionList.style.opacity = '1';
+      }, 100);
+    }
+  } catch (error) {
+    console.error('Error refreshing transactions:', error);
+  }
+}
+
+  } catch (error) {
+    showToast('Network error. Please try again.', 'error');
+    transferSubmit.disabled = false;
+    transferSubmit.textContent = originalText;
+  }
+});
+
 </script>
 
 </body>

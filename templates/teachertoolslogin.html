@@ -207,37 +207,51 @@
 
     /* ---------- THEME TOGGLE ---------- */
     .theme-toggle-corner {
-      position: absolute;
+      position: fixed;
       top: 24px;
       right: 24px;
-      z-index: 999;
-      width: 46px;
-      height: 46px;
+      width: 50px;
+      height: 50px;
       border-radius: 12px;
-      border: 1px solid var(--border);
       background: var(--card);
-      box-shadow: 0 4px 14px rgba(0,0,0,0.15);
-      display: grid;
-      place-items: center;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
       transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 100;
     }
 
     .theme-toggle-corner:hover {
-      background: var(--input-bg);
-      transform: scale(1.05);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.25);
     }
 
     .theme-icon {
       width: 24px;
       height: 24px;
-      transition: opacity 0.3s;
+      transition: 0.3s;
     }
 
-    .dark-mode .sun-icon { opacity: 0; position: absolute; }
-    .dark-mode .moon-icon { opacity: 1; }
-    .light-mode .sun-icon { opacity: 1; }
-    .light-mode .moon-icon { opacity: 0; position: absolute; }
+    /* Sun icon (shown in dark mode) */
+    .sun-icon {
+      display: block;
+    }
+
+    .moon-icon {
+      display: none;
+    }
+
+    /* Light mode - swap visibility */
+    .light-mode .sun-icon {
+      display: none;
+    }
+
+    .light-mode .moon-icon {
+      display: block;
+    }
 
     /* ---------- MODAL ---------- */
     .modal-bg {
@@ -282,6 +296,114 @@
     .close-modal:hover {
       background: var(--input-bg);
       box-shadow: none;
+    }
+
+    /* PIN Modal - Smaller overlay for PIN entry */
+    .pin-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(6px);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      visibility: hidden;
+      opacity: 0;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+
+    .pin-modal.show {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    .pin-box {
+      background: var(--card);
+      border: 2px solid var(--brand);
+      padding: 40px 30px;
+      border-radius: 16px;
+      max-width: 360px;
+      width: 90%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      text-align: center;
+      transform: translateY(0%);
+    }
+
+    .pin-box h3 {
+      margin: 0 0 8px 0;
+      color: var(--brand);
+      font-size: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .pin-box p {
+      margin: 0 0 24px 0;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .pin-box input {
+      width: 100%;
+      padding: 14px;
+      font-size: 18px;
+      text-align: center;
+      letter-spacing: 8px;
+      font-weight: 600;
+      background: var(--input-bg);
+      border: 2px solid var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      margin-bottom: 16px;
+      transform: translateX(-3%);
+    }
+
+    .pin-box input:focus {
+      outline: none;
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(36, 191, 240, 0.1);
+    }
+
+    .pin-buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    .pin-buttons button {
+      flex: 1;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .pin-submit {
+      background: var(--brand);
+      color: white;
+    }
+
+    .pin-submit:hover {
+      background: #1da3d1;
+      transform: translateY(-1px);
+    }
+
+    .pin-cancel {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .pin-cancel:hover {
+      background: var(--input-bg);
     }
 
     /* ---------- Toggle Button (old, keeping for compatibility) ---------- */
@@ -389,10 +511,6 @@
       .card { grid-template-columns: 1fr; max-width: 420px; }
       .promo { order: 2; text-align: center; }
       .form-wrap { order: 1; }
-      .theme-toggle-corner {
-        top: 16px;
-        right: 16px;
-      }
     }
   </style>
 </head>
@@ -461,6 +579,9 @@
           <input name="new_username" id="new_username" placeholder="Desired Username" required>
         </div>
         <div class="input">
+          <input name="email" id="email" type="email" placeholder="Email Address" required>
+        </div>
+        <div class="input">
           <input name="new_password" id="new_password" type="password" placeholder="Password" required>
         </div>
         <div class="input">
@@ -469,6 +590,21 @@
 
         <button type="submit">Send Request to Bankers</button>
         <button type="button" class="close-modal" onclick="closeModal()">Cancel</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- TEACHER PIN VERIFICATION MODAL -->
+  <div id="pin-modal" class="pin-modal">
+    <div class="pin-box">
+      <h3>🔒 Teacher PIN Required</h3>
+      <p>Enter the teacher PIN to proceed</p>
+      <form id="pin-form">
+        <input type="password" id="pin-input" placeholder="••••" maxlength="4" pattern="[0-9]*" inputmode="numeric" autocomplete="off">
+        <div class="pin-buttons">
+          <button type="button" class="pin-cancel" onclick="closePinModal()">Cancel</button>
+          <button type="submit" class="pin-submit">Submit</button>
+        </div>
       </form>
     </div>
   </div>
@@ -523,14 +659,66 @@
       document.getElementById("request-form").reset();
     }
 
-    // Password validation
-    document.getElementById("request-form").addEventListener("submit", function(e) {
+    // PIN Modal functions
+    const TEACHER_PIN = "4444"; // Change this to your desired PIN
+    let pinVerified = false;
+
+    function openPinModal() {
+      const pinModal = document.getElementById("pin-modal");
+      pinModal.classList.add("show");
+      setTimeout(() => {
+        document.getElementById("pin-input").focus();
+      }, 100);
+    }
+
+    function closePinModal() {
+      const pinModal = document.getElementById("pin-modal");
+      pinModal.classList.remove("show");
+      document.getElementById("pin-input").value = "";
+    }
+
+    // Password validation and PIN check
+    const requestForm = document.getElementById("request-form");
+    requestForm.addEventListener("submit", function(e) {
+      // If PIN already verified, allow natural form submission
+      if (pinVerified) {
+        pinVerified = false; // Reset for next time
+        return true; // Allow form to submit naturally
+      }
+      
+      e.preventDefault(); // Prevent submission until PIN verified
+      
       const password = document.getElementById("new_password").value;
       const confirm = document.getElementById("confirm_password").value;
 
       if (password !== confirm) {
-        e.preventDefault();
         alert("Passwords do not match!");
+        return;
+      }
+      
+      // Open PIN modal
+      openPinModal();
+    });
+
+    // PIN form submission
+    document.getElementById("pin-form").addEventListener("submit", function(e) {
+      e.preventDefault();
+      
+      const enteredPin = document.getElementById("pin-input").value;
+      
+      if (enteredPin === TEACHER_PIN) {
+        // PIN correct - close modal and submit the form
+        closePinModal();
+        pinVerified = true;
+        
+        // Use the native submit method to bypass the event listener
+        // This will actually submit to the server
+        requestForm.submit();
+      } else {
+        // PIN incorrect
+        alert("Incorrect PIN! Please try again.");
+        document.getElementById("pin-input").value = "";
+        document.getElementById("pin-input").focus();
       }
     });
 
@@ -538,6 +726,12 @@
     document.getElementById("modal-bg").addEventListener("click", function(e) {
       if (e.target === this) {
         closeModal();
+      }
+    });
+
+    document.getElementById("pin-modal").addEventListener("click", function(e) {
+      if (e.target === this) {
+        closePinModal();
       }
     });
   </script>

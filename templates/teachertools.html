@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
+<html lang="en" class="dark-mode" id="html-root">
 <head>
     <meta charset="UTF-8">
     <title>Teacher Tools</title>
@@ -67,29 +67,72 @@
         .center-column {
             flex: 5;
             max-width: 1400px;
-            height: 85vh;
+            height: 90vh;
             background: var(--bg3);
             padding: 35px;
             border-radius: var(--rounded);
             border: 1px solid var(--border);
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-            overflow-y: auto;
+            overflow: hidden;
             position: relative;
+            display: flex;
+            flex-direction: column;
         }
 
         h1 {
             text-align: center;
             margin: 10px 0 30px;
             font-size: 32px;
+            flex-shrink: 0;
+        }
+
+        .content-wrapper {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Custom scrollbar for content wrapper */
+        .content-wrapper::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .content-wrapper::-webkit-scrollbar-track {
+            background: var(--bg2);
+            border-radius: 4px;
+        }
+
+        .content-wrapper::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        .content-wrapper::-webkit-scrollbar-thumb:hover {
+            background: var(--brand);
         }
 
         .box {
             background: var(--bg2);
             padding: 20px;
             border-radius: var(--rounded);
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             border: 1px solid var(--border);
             position: relative;
+            flex-shrink: 0;
+        }
+
+        .box:first-child {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            margin-bottom: 20px;
+        }
+
+        .box:first-child .students-table-container {
+            flex: 1;
+            max-height: none;
         }
 
         .box h2 {
@@ -100,6 +143,34 @@
         .table-container {
             max-height: 400px;
             overflow-y: auto;
+        }
+
+        /* Student accounts - scrollable */
+        .students-table-container {
+            overflow-y: auto;
+        }
+
+        /* Custom scrollbar for table containers */
+        .table-container::-webkit-scrollbar,
+        .students-table-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .table-container::-webkit-scrollbar-track,
+        .students-table-container::-webkit-scrollbar-track {
+            background: var(--bg2);
+            border-radius: 4px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb,
+        .students-table-container::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb:hover,
+        .students-table-container::-webkit-scrollbar-thumb:hover {
+            background: var(--brand);
         }
 
         table {
@@ -262,24 +333,46 @@
             color: #ef4444;
         }
 
-        /* Theme Toggle */
-        .theme-toggle-corner {
-            position: fixed;
-            top: 24px;
-            right: 24px;
-            width: 50px;
-            height: 50px;
-            border-radius: 12px;
-            background: var(--bg2);
-            border: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        /* Tab buttons */
+        .tab-btn {
+            padding: 10px 20px;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: var(--text-muted);
             cursor: pointer;
-            transition: 0.2s;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 1600;
+            font-size: 14px;
+            font-weight: 600;
+            transition: 0.2s ease;
         }
+
+        .tab-btn:hover {
+            color: var(--text);
+        }
+
+        .tab-btn.active {
+            color: var(--brand);
+            border-bottom-color: var(--brand);
+        }
+
+        /* ---------- Theme Toggle (Corner) ---------- */
+    .theme-toggle-corner {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 100;
+    }
 
         .theme-toggle-corner:hover {
             transform: translateY(-2px);
@@ -496,6 +589,15 @@
                 display: none;
             }
         }
+        @media (max-width: 900px) {
+      .card { grid-template-columns: 1fr; max-width: 420px; }
+      .promo { order: 2; text-align: center; }
+      .form-wrap { order: 1; }
+      .theme-toggle-corner {
+        top: 16px;
+        right: 16px;
+      }
+    }
     </style>
 </head>
 
@@ -553,13 +655,55 @@
     <div class="center-column">
         <h1>Teacher Tools</h1>
 
+        <div class="content-wrapper">
         <!-- ACCOUNTS BOX -->
         <div class="box">
             <h2>Student Accounts</h2>
-            <div class="table-container">
+            
+            <!-- Account Type Tabs -->
+            <div style="display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 2px solid var(--border);">
+                <button class="tab-btn active" onclick="switchAccountTab('personal')" id="personal-tab">
+                    Personal Accounts
+                </button>
+                <button class="tab-btn" onclick="switchAccountTab('company')" id="company-tab">
+                    Company Accounts
+                </button>
+            </div>
+            
+            <!-- Personal Accounts Table -->
+            <div class="students-table-container" id="personal-accounts" style="display: block;">
                 <table>
-                    {% for u in users %}
-                    {% if u["Role"] == "Student" %}
+                    {% for u in personal_students %}
+                    <tr>
+                        <td><b>{{ u["Username"] }}</b></td>
+                        <td>${{ "%.2f"|format(u["Balance"]) }}</td>
+                        <td style="font-size: 12px; color: var(--text-muted);">
+                            Weekly: ${{ "%.2f"|format(u.get("WeeklyPayment", 0)|float) }}
+                        </td>
+                        <td>
+                            <button class="action-btn" onclick="openMoneyModal('{{ u['Username'] }}')">Adjust Money</button>
+                            <button class="action-btn" onclick="openSetMoneyModal('{{ u['Username'] }}')">Set Money</button>
+                            <button class="action-btn" onclick="openWeeklyPaymentModal('{{ u['Username'] }}', {{ u.get('WeeklyPayment', 0)|float }})">Set Payment</button>
+                            
+                            {% if u.get("Frozen") == "Yes" %}
+                            <button class="action-btn frozen" onclick="toggleFreeze('{{ u['Username'] }}', false)">Unfreeze</button>
+                            {% else %}
+                            <button class="action-btn" onclick="toggleFreeze('{{ u['Username'] }}', true)">Freeze</button>
+                            {% endif %}
+                            
+                            <button class="action-btn" onclick="openDeleteModal('{{ u['Username'] }}')">Delete</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </table>
+                <button class="create-account-btn" onclick="openCreateModal()">Create New Account</button>
+                <button class="action-btn" style="margin-top: 10px;" onclick="processWeeklyPayments()">Process Weekly Payments</button>
+            </div>
+            
+            <!-- Company Accounts Table -->
+            <div class="students-table-container" id="company-accounts" style="display: none;">
+                <table>
+                    {% for u in company_students %}
                     <tr>
                         <td><b>{{ u["Username"] }}</b></td>
                         <td>${{ "%.2f"|format(u["Balance"]) }}</td>
@@ -576,11 +720,10 @@
                             <button class="action-btn" onclick="openDeleteModal('{{ u['Username'] }}')">Delete</button>
                         </td>
                     </tr>
-                    {% endif %}
                     {% endfor %}
                 </table>
+                <button class="create-account-btn" onclick="openCreateModal()">Create New Account</button>
             </div>
-            <button class="create-account-btn" onclick="openCreateModal()">Create New Account</button>
         </div>
 
         <!-- LOANS BOX -->
@@ -605,11 +748,12 @@
         </div>
 
         <!-- Federal Reserve Button -->
-        <div style="text-align: center; margin-bottom: 30px;">
+        <div style="text-align: center; margin-bottom: 0px;">
             <a href="{{ url_for('federal_reserve') }}" class="fed-reserve-btn" style="position: static; transform: none;">
                 Federal Reserve
             </a>
         </div>
+        </div> <!-- Close content-wrapper -->
     </div>
 
     <!-- Right Banner -->
@@ -622,10 +766,15 @@
             <form method="POST" action="/create_account">
                 <input name="new_username" placeholder="Username" required>
                 <input name="new_password" type="password" placeholder="Password" required>
+                <input name="email" type="email" placeholder="Email">
                 <select name="role" required>
                     <option value="">Select Role</option>
                     <option value="Student">Student</option>
                     <option value="Teacher">Teacher</option>
+                </select>
+                <select name="account_type" id="accountTypeSelect">
+                    <option value="Personal">Personal Account</option>
+                    <option value="Company">Company Account</option>
                 </select>
                 <button type="submit">Create Account</button>
                 <button type="button" class="close-modal" onclick="closeModal('createModal')">Cancel</button>
@@ -682,6 +831,25 @@
                 <textarea name="reason" placeholder="Reason for deletion" rows="3" required></textarea>
                 <button type="submit">Confirm Delete</button>
                 <button type="button" class="close-modal" onclick="closeModal('deleteModal')">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- WEEKLY PAYMENT MODAL -->
+    <div id="weeklyPaymentModal" class="modal-bg">
+        <div class="modal-box">
+            <h3 id="weeklyPaymentModalTitle">Set Weekly Payment</h3>
+            <p style="text-align: center; color: var(--text-muted); margin-bottom: 15px; font-size: 13px;">
+                Set automated weekly payment for <b id="weeklyPaymentUsername"></b> (Personal Account)
+            </p>
+            <form method="POST" action="/set_weekly_payment">
+                <input type="hidden" id="weeklyPaymentUsernameInput" name="username">
+                <input type="number" id="weeklyPaymentAmount" name="weekly_amount" step="0.01" min="0" placeholder="Weekly Payment Amount" required>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: -5px; margin-bottom: 10px;">
+                    Set to $0 to disable weekly payments
+                </p>
+                <button type="submit">Set Weekly Payment</button>
+                <button type="button" class="close-modal" onclick="closeModal('weeklyPaymentModal')">Cancel</button>
             </form>
         </div>
     </div>
@@ -773,6 +941,33 @@
             form.appendChild(input);
             document.body.appendChild(form);
             form.submit();
+        }
+
+        function switchAccountTab(type) {
+            // Update tab buttons
+            document.getElementById('personal-tab').classList.toggle('active', type === 'personal');
+            document.getElementById('company-tab').classList.toggle('active', type === 'company');
+            
+            // Update tab content
+            document.getElementById('personal-accounts').style.display = type === 'personal' ? 'block' : 'none';
+            document.getElementById('company-accounts').style.display = type === 'company' ? 'block' : 'none';
+        }
+
+        function openWeeklyPaymentModal(username, currentAmount) {
+            document.getElementById('weeklyPaymentUsername').textContent = username;
+            document.getElementById('weeklyPaymentUsernameInput').value = username;
+            document.getElementById('weeklyPaymentAmount').value = currentAmount;
+            document.getElementById('weeklyPaymentModal').classList.add('active');
+        }
+
+        function processWeeklyPayments() {
+            if (confirm('Process weekly payments for all Personal accounts?')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/process_weekly_payments';
+                document.body.appendChild(form);
+                form.submit();
+            }
         }
 
         // Close modals when clicking outside

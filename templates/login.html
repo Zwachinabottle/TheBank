@@ -303,6 +303,53 @@
       background: #c9302c;
     }
 
+    /* Account Type Tabs */
+    .account-tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      border-bottom: 2px solid var(--border);
+    }
+
+    .tab-button {
+      flex: 1;
+      padding: 12px;
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: var(--text-muted);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: "Inter", system-ui;
+    }
+
+    .tab-button:hover {
+      color: var(--text);
+      background: rgba(36, 191, 240, 0.05);
+    }
+
+    .tab-button.active {
+      color: var(--brand);
+      border-bottom-color: var(--brand);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .hint-text {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      line-height: 1.4;
+    }
+
     /* Flash Messages */
     .flash-messages {
       position: fixed;
@@ -429,17 +476,54 @@
   <!-- CREATE ACCOUNT MODAL -->
   <div id="modal-bg" class="modal-bg">
     <div class="modal-box">
-      <h3>Create Student Account</h3>
+      <h3>Create Account</h3>
+
+      <!-- Account Type Tabs -->
+      <div class="account-tabs">
+        <button type="button" class="tab-button active" onclick="switchTab('personal')">
+          Personal Account
+        </button>
+        <button type="button" class="tab-button" onclick="switchTab('company')">
+          Company Account
+        </button>
+      </div>
 
       <form method="POST" action="/create_student_account" id="create-form">
-        <div class="input">
-          <input name="new_username" id="new_username" placeholder="Username" required>
+        <!-- Hidden input for account type -->
+        <input type="hidden" name="account_type" id="account_type" value="Personal">
+
+        <!-- Personal Account Tab -->
+        <div id="personal-tab" class="tab-content active">
+          <div class="input">
+            <input name="new_username" id="new_username" placeholder="Username" required>
+          </div>
+          <div class="input">
+            <input name="email" id="personal_email" type="email" placeholder="Email Address" required>
+          </div>
+          <p class="hint-text">Your email prevents duplicate accounts. One email = one account.</p>
+          <div class="input">
+            <input name="new_password" id="new_password" type="password" placeholder="Password" required>
+          </div>
+          <div class="input">
+            <input name="confirm_password" id="confirm_password" type="password" placeholder="Confirm Password" required>
+          </div>
         </div>
-        <div class="input">
-          <input name="new_password" id="new_password" type="password" placeholder="Password" required>
-        </div>
-        <div class="input">
-          <input name="confirm_password" id="confirm_password" type="password" placeholder="Confirm Password" required>
+
+        <!-- Company Account Tab -->
+        <div id="company-tab" class="tab-content">
+          <div class="input">
+            <input name="new_username" id="company_username" placeholder="Company Name" required disabled>
+          </div>
+          <div class="input">
+            <input name="email" id="company_email" type="text" placeholder="Member Emails (comma-separated)" required disabled>
+          </div>
+          <p class="hint-text">Example: alice@email.com, bob@email.com, charlie@email.com</p>
+          <div class="input">
+            <input name="new_password" id="company_password" type="password" placeholder="Password" required disabled>
+          </div>
+          <div class="input">
+            <input name="confirm_password" id="company_confirm" type="password" placeholder="Confirm Password" required disabled>
+          </div>
         </div>
 
         <button type="submit">Create Account</button>
@@ -491,17 +575,98 @@
     // Modal functions
     function openModal() {
       document.getElementById("modal-bg").style.display = "flex";
+      // Reset to personal tab
+      switchTab('personal');
     }
 
     function closeModal() {
       document.getElementById("modal-bg").style.display = "none";
       document.getElementById("create-form").reset();
+      switchTab('personal');
+    }
+
+    // Tab switching
+    function switchTab(tabName) {
+      // Update account type hidden input
+      document.getElementById('account_type').value = tabName === 'personal' ? 'Personal' : 'Company';
+      
+      // Update tab buttons - fix the active state properly
+      const personalTab = document.querySelectorAll('.tab-button')[0];
+      const companyTab = document.querySelectorAll('.tab-button')[1];
+      
+      if (tabName === 'personal') {
+        personalTab.classList.add('active');
+        companyTab.classList.remove('active');
+      } else {
+        personalTab.classList.remove('active');
+        companyTab.classList.add('active');
+      }
+      
+      // Update tab content
+      document.getElementById('personal-tab').classList.remove('active');
+      document.getElementById('company-tab').classList.remove('active');
+      
+      if (tabName === 'personal') {
+        document.getElementById('personal-tab').classList.add('active');
+        // Enable personal fields, disable company fields
+        document.getElementById('new_username').disabled = false;
+        document.getElementById('personal_email').disabled = false;
+        document.getElementById('new_password').disabled = false;
+        document.getElementById('confirm_password').disabled = false;
+        
+        document.getElementById('company_username').disabled = true;
+        document.getElementById('company_email').disabled = true;
+        document.getElementById('company_password').disabled = true;
+        document.getElementById('company_confirm').disabled = true;
+        
+        // Update name attributes
+        document.getElementById('new_username').name = 'new_username';
+        document.getElementById('personal_email').name = 'email';
+        document.getElementById('new_password').name = 'new_password';
+        document.getElementById('confirm_password').name = 'confirm_password';
+        
+        document.getElementById('company_username').name = '';
+        document.getElementById('company_email').name = '';
+        document.getElementById('company_password').name = '';
+        document.getElementById('company_confirm').name = '';
+      } else {
+        document.getElementById('company-tab').classList.add('active');
+        // Enable company fields, disable personal fields
+        document.getElementById('new_username').disabled = true;
+        document.getElementById('personal_email').disabled = true;
+        document.getElementById('new_password').disabled = true;
+        document.getElementById('confirm_password').disabled = true;
+        
+        document.getElementById('company_username').disabled = false;
+        document.getElementById('company_email').disabled = false;
+        document.getElementById('company_password').disabled = false;
+        document.getElementById('company_confirm').disabled = false;
+        
+        // Update name attributes
+        document.getElementById('new_username').name = '';
+        document.getElementById('personal_email').name = '';
+        document.getElementById('new_password').name = '';
+        document.getElementById('confirm_password').name = '';
+        
+        document.getElementById('company_username').name = 'new_username';
+        document.getElementById('company_email').name = 'email';
+        document.getElementById('company_password').name = 'new_password';
+        document.getElementById('company_confirm').name = 'confirm_password';
+      }
     }
 
     // Password validation
     document.getElementById("create-form").addEventListener("submit", function(e) {
-      const password = document.getElementById("new_password").value;
-      const confirm = document.getElementById("confirm_password").value;
+      const accountType = document.getElementById("account_type").value;
+      let password, confirm;
+      
+      if (accountType === "Personal") {
+        password = document.getElementById("new_password").value;
+        confirm = document.getElementById("confirm_password").value;
+      } else {
+        password = document.getElementById("company_password").value;
+        confirm = document.getElementById("company_confirm").value;
+      }
 
       if (password !== confirm) {
         e.preventDefault();

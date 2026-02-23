@@ -9,7 +9,7 @@ from threading import Lock
 
 app = Flask(__name__, static_folder='images')
 app.secret_key = "your_secret_key_here"
-
+#https://tinyurl.com/KchingBanking
 # ---------- CACHING SYSTEM ----------
 class SheetCache:
     """In-memory cache with TTL to minimize Google Sheets API calls"""
@@ -84,15 +84,21 @@ users_sheet = sheet.worksheet("Users")
 transactions_sheet = sheet.worksheet("Transactions")
 fed_sheet = sheet.worksheet("Reserve")
 loans_sheet = sheet.worksheet("Loans")
-# Ensure sheet has required columns
+# Ensure sheet has required columns (but never delete existing headers!)
 header = users_sheet.row_values(1)
 
-required_headers = ["Username", "Password", "Balance", "Frozen", "Role"]
+required_headers = ["Username", "Password", "Balance", "Frozen", "Role", "Email", "AccountType", "CardNumber", "PIN", "WeeklyPayment"]
 
-if header != required_headers:
-    # Reset header row (preserves data if columns existed)
-    users_sheet.delete_rows(1)
-    users_sheet.insert_row(required_headers, 1)
+# Only add missing columns, never delete or reset headers
+if len(header) < len(required_headers):
+    # Add missing columns at the end
+    for i in range(len(header), len(required_headers)):
+        users_sheet.update_cell(1, i + 1, required_headers[i])
+elif len(header) > 0:
+    # Fix any incorrect column names in existing positions (without deleting row)
+    for i, req_header in enumerate(required_headers):
+        if i < len(header) and header[i] != req_header:
+            users_sheet.update_cell(1, i + 1, req_header)
     
 
 
@@ -160,7 +166,9 @@ def get_all_users():
         return cached
     
     def fetch():
-        return users_sheet.get_all_records()
+        # Use expected_headers to ensure correct column mapping
+        expected = ["Username", "Password", "Balance", "Frozen", "Role", "Email", "AccountType", "CardNumber", "PIN", "WeeklyPayment"]
+        return users_sheet.get_all_records(expected_headers=expected)
     
     users = retry_with_backoff(fetch)
     cache.set(cache_key, users)
@@ -254,14 +262,17 @@ def transfer_money(sender, receiver, amount, comment):
     sender_user = next((u for u in all_users if u["Username"] == sender), None)
     receiver_user = next((u for u in all_users if u["Username"] == receiver), None)
     
-    if not sender_user or not receiver_user:
-        return False
+    if not sender_user:
+        return "sender_not_found"
+    
+    if not receiver_user:
+        return "receiver_not_found"
     
     sender_balance = float(sender_user["Balance"])
     receiver_balance = float(receiver_user["Balance"])
 
     if sender_balance < amount:
-        return False
+        return "insufficient_balance"
 
     # Find cells and update (unavoidable API calls, but batched)
     def batch_update():
@@ -282,7 +293,7 @@ def transfer_money(sender, receiver, amount, comment):
         f"user_data_{receiver}"
     )
     
-    return True
+    return "success"
 
 def role_required(*roles):
     def decorator(f):
@@ -317,10 +328,27 @@ def unfreeze_account(username):
     retry_with_backoff(update)
     cache.invalidate("all_users", f"user_data_{username}", f"frozen_{username}")
 
-def create_account(username, password):
+def generate_card_number():
+    """Generate a random 12-digit card number starting with 67"""
+    import random
+    # Format: 67XX-XXXX-XXXX (starts with 67 for Vex Bank, 10 random digits)
+    remaining_digits = ''.join([str(random.randint(0, 9)) for _ in range(10)])
+    # Format as 67XX-XXXX-XXXX for readability
+    card_number = f"67{remaining_digits[:2]}-{remaining_digits[2:6]}-{remaining_digits[6:10]}"
+    return card_number
+
+def generate_pin():
+    """Generate a random 4-digit PIN"""
+    import random
+    return ''.join([str(random.randint(0, 9)) for _ in range(4)])
+
+def create_account(username, password, email="", account_type="Personal"):
     """Create account and invalidate user cache"""
+    card_number = generate_card_number()
+    pin = generate_pin()
+    
     def append():
-        users_sheet.append_row([username, password, 0, "No", "Student"])
+        users_sheet.append_row([username, password, 0, "No", "Student", email, account_type, card_number, pin])
     
     retry_with_backoff(append)
     cache.invalidate("all_users")
@@ -466,13 +494,24 @@ def recalculate_federal_reserve():
     teacher_money = 0
 
     for u in users:
-        balance = float(u["Balance"])
-        total_in_accounts += balance
+        try:
+            # Safely convert balance, skip if invalid
+            balance_val = u.get("Balance", 0)
+            if balance_val == "" or balance_val is None:
+                balance = 0.0
+            else:
+                balance = float(balance_val)
+            
+            total_in_accounts += balance
 
-        if u.get("Role") == "Student":
-            student_money += balance
-        elif u.get("Role") in ["Teacher", "Banker"]:
-            teacher_money += balance
+            if u.get("Role") == "Student":
+                student_money += balance
+            elif u.get("Role") in ["Teacher", "Banker"]:
+                teacher_money += balance
+        except (ValueError, TypeError) as e:
+            # Skip users with invalid balance data
+            print(f"Warning: Skipping user {u.get('Username', 'Unknown')} due to invalid balance: {u.get('Balance', 'N/A')}")
+            continue
     
     # Calculate total money LOANED OUT (approved loans still being paid back)
     total_loaned_out = 0
@@ -480,7 +519,7 @@ def recalculate_federal_reserve():
     
     try:
         def fetch_loans():
-            return loans_sheet.get_all_records()
+            return loans_sheet.get_all_records(expected_headers=loans_sheet.row_values(1))
         
         loans = retry_with_backoff(fetch_loans)
         
@@ -535,11 +574,17 @@ def recalculate_federal_reserve():
     # Bank balance + 90% of customer deposits (keeping 10% reserve)
     try:
         bank_account = get_bank_account()
-        bank_balance = float(bank_account.get("Balance", 0))
+        balance_val = bank_account.get("Balance", 0)
+        # Safely convert balance
+        if balance_val == "" or balance_val is None:
+            bank_balance = 0.0
+        else:
+            bank_balance = float(balance_val)
         lendable_funds = bank_balance + ((student_money + teacher_money) * 0.9)
         liquidity = round(lendable_funds, 2)
-    except:
-        # Fallback to old calculation if bank account doesn't exist
+    except (ValueError, TypeError) as e:
+        print(f"Warning: Error calculating liquidity, using fallback: {e}")
+        # Fallback to old calculation if bank account doesn't exist or has invalid data
         liquidity = round(total_in_accounts - ((student_money * 0.1) + (teacher_money * 0.1)), 2)
     
     # Loaned = Total amount currently loaned out (not yet repaid)
@@ -614,8 +659,8 @@ def process_loan_payments():
     from datetime import datetime, timedelta
     
     def get_loan_data():
-        loans = loans_sheet.get_all_records()
         header = loans_sheet.row_values(1)
+        loans = loans_sheet.get_all_records(expected_headers=header)
         return loans, header
     
     loans, header = retry_with_backoff(get_loan_data)
@@ -695,6 +740,54 @@ def process_loan_payments():
     cache.invalidate_pattern("user_loans_")
     
     return payments_processed
+
+def process_weekly_personal_payments():
+    """Process weekly payments for Personal accounts only (separate economy from Company accounts)"""
+    all_users = get_all_users()
+    payments_processed = 0
+    
+    for user in all_users:
+        # Only process Personal accounts with Student role
+        if user.get("AccountType") != "Personal" or user.get("Role") != "Student":
+            continue
+        
+        weekly_payment = user.get("WeeklyPayment", "")
+        if not weekly_payment or weekly_payment == "":
+            continue
+        
+        try:
+            amount = float(weekly_payment)
+            if amount <= 0:
+                continue
+            
+            username = user.get("Username")
+            current_balance = float(user.get("Balance", 0))
+            new_balance = current_balance + amount
+            
+            # Update balance
+            update_balance(username, new_balance)
+            
+            # Add transaction
+            add_transaction("Weekly Payment", username, amount, "Automated weekly payment")
+            
+            payments_processed += 1
+            log_action("System", f"Automated weekly payment of ${amount} to {username} (Personal account)", amount, "Weekly Payment")
+        except (ValueError, TypeError) as e:
+            print(f"Error processing weekly payment for {user.get('Username', 'Unknown')}: {e}")
+            continue
+    
+    return payments_processed
+
+def set_weekly_payment(username, amount):
+    """Set weekly payment amount for a Personal account"""
+    def update():
+        cell = users_sheet.find(username)
+        header = users_sheet.row_values(1)
+        payment_col = header.index("WeeklyPayment") + 1
+        users_sheet.update_cell(cell.row, payment_col, amount)
+    
+    retry_with_backoff(update)
+    cache.invalidate("all_users", f"user_data_{username}")
 
 def loan_money(sender, reason, amount, weeks):
     """Submit loan request and invalidate cache"""
@@ -874,7 +967,9 @@ def get_pending_teacher_requests():
     try:
         def fetch():
             teacher_requests_sheet = sheet.worksheet("TeacherRequests")
-            return teacher_requests_sheet.get_all_records()
+            # Use expected_headers to ensure correct column mapping
+            expected = ["Username", "Password", "Email", "Status", "ApprovedBy", "Requested Date"]
+            return teacher_requests_sheet.get_all_records(expected_headers=expected)
         
         rows = retry_with_backoff(fetch)
         pending = []
@@ -884,6 +979,36 @@ def get_pending_teacher_requests():
                     "row": idx,
                     "Username": row.get("Username", ""),
                     "Password": row.get("Password", ""),
+                    "Email": row.get("Email", ""),
+                    "Date": row.get("Requested Date", "")
+                })
+        cache.set(cache_key, pending)
+        return pending
+    except:
+        return []
+
+def get_pending_role_change_requests():
+    """Get all pending role change requests with caching"""
+    cache_key = "pending_role_change_requests"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    
+    try:
+        def fetch():
+            role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+            return role_requests_sheet.get_all_records(expected_headers=role_requests_sheet.row_values(1))
+        
+        rows = retry_with_backoff(fetch)
+        pending = []
+        for idx, row in enumerate(rows, start=2):
+            if row.get("Status") == "Pending":
+                pending.append({
+                    "row": idx,
+                    "Username": row.get("Username", ""),
+                    "CurrentRole": row.get("Current Role", ""),
+                    "RequestedRole": row.get("Requested Role", ""),
+                    "Reason": row.get("Reason", ""),
                     "Date": row.get("Request Date", "")
                 })
         cache.set(cache_key, pending)
@@ -899,7 +1024,7 @@ def get_pending_loans():
         return cached
     
     def fetch():
-        return loans_sheet.get_all_records()
+        return loans_sheet.get_all_records(expected_headers=loans_sheet.row_values(1))
     
     rows = retry_with_backoff(fetch)
     pending = []
@@ -1011,7 +1136,7 @@ def get_user_loans(username):
         return cached
     
     def fetch():
-        return loans_sheet.get_all_records()
+        return loans_sheet.get_all_records(expected_headers=loans_sheet.row_values(1))
     
     rows = retry_with_backoff(fetch)
     user_loans = []
@@ -1078,7 +1203,7 @@ def get_all_loans():
         return cached
     
     def fetch():
-        return loans_sheet.get_all_records()
+        return loans_sheet.get_all_records(expected_headers=loans_sheet.row_values(1))
     
     rows = retry_with_backoff(fetch)
     loans = []
@@ -1176,7 +1301,7 @@ def process_loans():
     
     def get_loan_data():
         header = loans_sheet.row_values(1)
-        loans = loans_sheet.get_all_records()
+        loans = loans_sheet.get_all_records(expected_headers=header)
         return header, loans
     
     # Get column indices
@@ -1250,14 +1375,60 @@ def account():
     username = session["user"]
     balance = get_user_balance(username)
     transactions = get_user_transactions(username)
-    loans = get_user_loans(username)  
+    loans = get_user_loans(username)
+    
+    # Get user's card number and PIN
+    all_users = get_all_users()
+    user_data = next((u for u in all_users if u["Username"] == username), None)
+    card_number = user_data.get("CardNumber", "N/A") if user_data else "N/A"
+    pin = user_data.get("PIN", "N/A") if user_data else "N/A"
 
     return render_template("account.html",
                            username=username,
                            balance=balance,
                            transactions=transactions,
-                           loans=loans) 
+                           loans=loans,
+                           card_number=card_number,
+                           pin=pin) 
 
+
+@app.route("/check_username", methods=["POST"])
+def check_username():
+    """AJAX endpoint to check if a username exists"""
+    if "user" not in session:
+        return jsonify({"exists": False, "error": "Not logged in"}), 401
+    
+    username = request.json.get("username", "").strip()
+    
+    if not username:
+        return jsonify({"exists": False})
+    
+    all_users = get_all_users()
+    user_exists = any(u["Username"] == username for u in all_users)
+    
+    # Check if frozen
+    is_frozen_status = False
+    if user_exists:
+        is_frozen_status = is_frozen(username)
+    
+    return jsonify({
+        "exists": user_exists,
+        "frozen": is_frozen_status
+    })
+
+@app.route("/get_transactions", methods=["GET"])
+def get_transactions():
+    """AJAX endpoint to get user's recent transactions"""
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    username = session["user"]
+    transactions = get_user_transactions(username)
+    
+    return jsonify({
+        "transactions": transactions,
+        "username": username
+    })
 
 @app.route("/transfer", methods=["POST"])
 def transfer():
@@ -1272,6 +1443,35 @@ def transfer():
     # Validate amount is positive
     if amount <= 0:
         flash("Amount must be greater than zero", "error")
+        return redirect(url_for("account"))
+
+    # Check if sender and receiver exist
+    all_users = get_all_users()
+    sender_exists = any(u["Username"] == sender for u in all_users)
+    receiver_exists = any(u["Username"] == receiver for u in all_users)
+    
+    if not sender_exists:
+        flash("Your account was not found", "error")
+        return redirect(url_for("account"))
+    
+    if not receiver_exists:
+        flash(f"Account '{receiver}' does not exist", "error")
+        return redirect(url_for("account"))
+
+    # Get account types
+    sender_user = next((u for u in all_users if u["Username"] == sender), None)
+    receiver_user = next((u for u in all_users if u["Username"] == receiver), None)
+    
+    sender_account_type = sender_user.get("AccountType", "Personal") if sender_user else "Personal"
+    receiver_account_type = receiver_user.get("AccountType", "Personal") if receiver_user else "Personal"
+    
+    # Block transfers between Personal and Company accounts
+    if (sender_account_type == "Personal" and receiver_account_type == "Company") or \
+       (sender_account_type == "Company" and receiver_account_type == "Personal"):
+        error_msg = "Transfers between Personal and Company accounts are not allowed"
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 403
+        flash(error_msg, "error")
         return redirect(url_for("account"))
 
     # Check if sender or receiver is frozen
@@ -1291,11 +1491,48 @@ def transfer():
     if sender==receiver:
         flash("Sending money to oneself is disabled", "error")
         return redirect(url_for("account"))
-            # Proceed with normal transfer if neither frozen
-    if transfer_money(sender, receiver, amount, comment):
-        flash("Transfer successful!")
-    else:
-        flash("Insufficient balance!")
+    
+    # Proceed with normal transfer if neither frozen
+    try:
+        result = transfer_money(sender, receiver, amount, comment)
+        
+        if result == "success":
+            success_msg = f"Successfully sent ${amount:.2f} to {receiver}!"
+            # Get updated balance for AJAX response
+            new_balance = get_user_balance(sender)
+            
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({
+                    "success": True, 
+                    "message": success_msg,
+                    "new_balance": new_balance
+                })
+            flash(success_msg, "success")
+        elif result == "insufficient_balance":
+            error_msg = "Insufficient balance!"
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({"success": False, "message": error_msg}), 400
+            flash(error_msg, "error")
+        elif result == "receiver_not_found":
+            error_msg = f"Account '{receiver}' does not exist"
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({"success": False, "message": error_msg}), 400
+            flash(error_msg, "error")
+        elif result == "sender_not_found":
+            error_msg = "Your account was not found"
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({"success": False, "message": error_msg}), 400
+            flash(error_msg, "error")
+        else:
+            error_msg = "Transfer failed. Please try again."
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({"success": False, "message": error_msg}), 500
+            flash(error_msg, "error")
+    except Exception as e:
+        error_msg = f"Error: {str(e)}"
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 500
+        flash(error_msg, "error")
 
     return redirect(url_for("account"))
 
@@ -1386,6 +1623,8 @@ def unfreeze_account_route():
 def create_account_route():
     username = request.form["new_username"]
     password = request.form["new_password"]
+    email = request.form.get("email", "").strip()
+    account_type = request.form.get("account_type", "Personal")
 
     # Prevent duplicates
     users = get_all_users()
@@ -1393,7 +1632,7 @@ def create_account_route():
         flash("Username already exists.")
         return redirect(url_for("teacher_tools"))
 
-    create_account(username, password)
+    create_account(username, password, email, account_type)
     flash("Account created successfully!")
     return redirect(url_for("teacher_tools"))
 
@@ -1402,6 +1641,8 @@ def create_student_account():
     username = request.form["new_username"]
     password = request.form["new_password"]
     confirm = request.form["confirm_password"]
+    email = request.form.get("email", "").strip()
+    account_type = request.form.get("account_type", "Personal")
 
     # Server-side password confirmation check
     if password != confirm:
@@ -1413,9 +1654,26 @@ def create_student_account():
     if any(u["Username"] == username for u in users):
         flash("Username already exists!", "error")
         return redirect(url_for("login"))
+    
+    # Check for duplicate emails (only for Personal accounts)
+    if account_type == "Personal":
+        if not email:
+            flash("Email is required for personal accounts!", "error")
+            return redirect(url_for("login"))
+        
+        # Check if email already exists
+        if any(u.get("Email", "").strip().lower() == email.lower() for u in users):
+            flash("This email is already registered!", "error")
+            return redirect(url_for("login"))
+    
+    # For Company accounts, email can contain multiple emails (comma-separated)
+    if account_type == "Company":
+        if not email:
+            flash("At least one email is required for company accounts!", "error")
+            return redirect(url_for("login"))
 
     # Create account with $0 balance and Student role
-    create_account(username, password)
+    create_account(username, password, email, account_type)
     flash("Account created successfully! You can now log in.", "success")
     return redirect(url_for("login"))
 
@@ -1424,6 +1682,7 @@ def request_teacher_account():
     username = request.form["new_username"]
     password = request.form["new_password"]
     confirm = request.form["confirm_password"]
+    email = request.form.get("email", "").strip()
 
     # Server-side password confirmation check
     if password != confirm:
@@ -1435,6 +1694,11 @@ def request_teacher_account():
     if any(u["Username"] == username for u in users):
         flash("Username already exists!", "error")
         return redirect(url_for("teacher_tools_login"))
+    
+    # Validate email
+    if not email:
+        flash("Email is required for teacher accounts!", "error")
+        return redirect(url_for("teacher_tools_login"))
 
     # Add to teacher requests sheet for banker approval
     def add_request():
@@ -1442,17 +1706,55 @@ def request_teacher_account():
             teacher_requests_sheet = sheet.worksheet("TeacherRequests")
         except:
             # Create sheet if it doesn't exist
-            teacher_requests_sheet = sheet.add_worksheet("TeacherRequests", rows=100, cols=5)
-            teacher_requests_sheet.append_row(["Username", "Password", "Request Date", "Status", "Approved By"])
+            teacher_requests_sheet = sheet.add_worksheet("TeacherRequests", rows=100, cols=6)
+            teacher_requests_sheet.append_row(["Username", "Password", "Email", "Status", "ApprovedBy", "Requested Date"])
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        teacher_requests_sheet.append_row([username, password, now, "Pending", ""])
+        teacher_requests_sheet.append_row([username, password, email, "Pending", "", now])
     
     retry_with_backoff(add_request)
     cache.invalidate_pattern("teacher")
     
     flash("Teacher account request sent! A banker will review it soon.", "success")
     return redirect(url_for("teacher_tools_login"))
+
+@app.route("/request_role_change", methods=["POST"])
+def request_role_change():
+    if "user" not in session:
+        flash("You must be logged in to request a role change", "error")
+        return redirect(url_for("login"))
+    
+    username = session["user"]
+    current_role = session.get("role", "Student")
+    requested_role = request.form.get("requested_role", "")
+    reason = request.form.get("reason", "")
+    
+    if not requested_role or not reason:
+        flash("Please provide both a role and reason for the request", "error")
+        return redirect(url_for("account"))
+    
+    # Don't allow requesting same role
+    if requested_role == current_role:
+        flash("You already have this role!", "error")
+        return redirect(url_for("account"))
+    
+    # Add to role change requests sheet
+    def add_request():
+        try:
+            role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+        except:
+            # Create sheet if it doesn't exist
+            role_requests_sheet = sheet.add_worksheet("RoleChangeRequests", rows=100, cols=6)
+            role_requests_sheet.append_row(["Username", "Current Role", "Requested Role", "Reason", "Request Date", "Status"])
+        
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        role_requests_sheet.append_row([username, current_role, requested_role, reason, now, "Pending"])
+    
+    retry_with_backoff(add_request)
+    cache.invalidate_pattern("role_change")
+    
+    flash("Role change request submitted! A banker will review it soon.", "success")
+    return redirect(url_for("account"))
 
 @app.route("/delete_account", methods=["POST"])
 @role_required("Teacher", "Banker")
@@ -1521,16 +1823,38 @@ def subtract_money():
 @app.route("/approve_loan/<int:row_index>", methods=["POST"])
 @role_required("Banker")
 def approve_loan_route(row_index):
-    approve_loan(row_index)
-    flash("Loan approved!")
-    return redirect(url_for("federal_reserve"))
+    try:
+        approve_loan(row_index)
+        flash("Loan approved!")
+        
+        # Return JSON for AJAX requests
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": True, "message": "Loan approved!"})
+        return redirect(url_for("federal_reserve"))
+    except Exception as e:
+        error_msg = "API quota exceeded. Please wait a moment and try again." if "quota" in str(e).lower() else f"Error: {str(e)}"
+        flash(error_msg, "error")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 429 if "quota" in str(e).lower() else 500
+        return redirect(url_for("federal_reserve"))
 
 @app.route("/deny_loan/<int:row_index>", methods=["POST"])
 @role_required("Banker")
 def deny_loan_route(row_index):
-    deny_loan(row_index)
-    flash("Loan denied!")
-    return redirect(url_for("federal_reserve"))
+    try:
+        deny_loan(row_index)
+        flash("Loan denied!")
+        
+        # Return JSON for AJAX requests
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": True, "message": "Loan denied!"})
+        return redirect(url_for("federal_reserve"))
+    except Exception as e:
+        error_msg = "API quota exceeded. Please wait a moment and try again." if "quota" in str(e).lower() else f"Error: {str(e)}"
+        flash(error_msg, "error")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 429 if "quota" in str(e).lower() else 500
+        return redirect(url_for("federal_reserve"))
 
 @app.route("/process_loan_payments", methods=["POST"])
 @role_required("Banker")
@@ -1542,6 +1866,51 @@ def process_loan_payments_route():
     else:
         flash("No loan payments were due at this time.", "info")
     return redirect(url_for("federal_reserve"))
+
+@app.route("/process_weekly_payments", methods=["POST"])
+@role_required("Banker")
+def process_weekly_payments_route():
+    """Manually trigger weekly payments for Personal accounts"""
+    try:
+        payments_processed = process_weekly_personal_payments()
+        flash(f"Processed {payments_processed} weekly payments for Personal accounts!")
+        return redirect(url_for("teacher_tools"))
+    except Exception as e:
+        flash(f"Error processing weekly payments: {str(e)}", "error")
+        return redirect(url_for("teacher_tools"))
+
+@app.route("/set_weekly_payment", methods=["POST"])
+@role_required("Teacher", "Banker")
+def set_weekly_payment_route():
+    """Set weekly payment amount for a Personal account"""
+    username = request.form["username"]
+    amount = request.form.get("weekly_amount", "0")
+    
+    # Verify user exists and is a Personal account
+    all_users = get_all_users()
+    user = next((u for u in all_users if u["Username"] == username), None)
+    
+    if not user:
+        flash(f"User {username} not found", "error")
+        return redirect(url_for("teacher_tools"))
+    
+    if user.get("AccountType") != "Personal":
+        flash(f"{username} is not a Personal account", "error")
+        return redirect(url_for("teacher_tools"))
+    
+    try:
+        amount_float = float(amount) if amount else 0
+        if amount_float < 0:
+            flash("Weekly payment cannot be negative", "error")
+            return redirect(url_for("teacher_tools"))
+        
+        set_weekly_payment(username, amount_float)
+        log_action(session["user"], f"Set weekly payment for {username} to ${amount_float}", amount_float, "Set Payment")
+        flash(f"Set weekly payment for {username} to ${amount_float:.2f}")
+        return redirect(url_for("teacher_tools"))
+    except ValueError:
+        flash("Invalid amount", "error")
+        return redirect(url_for("teacher_tools"))
 
 @app.route("/set_project_end_date", methods=["POST"])
 @role_required("Banker")
@@ -1612,104 +1981,217 @@ def deny_deletion_route(row_index):
 @app.route("/approve_cashburn/<int:row_index>", methods=["POST"])
 @role_required("Banker")
 def approve_cashburn_route(row_index):
-    def get_burn():
-        cashburns_sheet = sheet.worksheet("CashBurns")
-        cashburn = cashburns_sheet.row_values(row_index)
-        header = cashburns_sheet.row_values(1)
-        return cashburns_sheet, cashburn, header
-    
-    cashburns_sheet, cashburn, header = retry_with_backoff(get_burn)
-    col_index = {name: idx + 1 for idx, name in enumerate(header)}
-    
-    requester = cashburn[col_index["Requester"] - 1]
-    amount = float(cashburn[col_index["Amount"] - 1])
-    
-    # Deduct from user's balance
-    current_balance = get_user_balance(requester)
-    update_balance(requester, current_balance - amount)
-    
-    # Add transaction
-    add_transaction(requester, "Cash Burn", amount, "Cash burn approved")
-    
-    # Update status
-    def update():
-        cashburns_sheet.update_cell(row_index, col_index["Status"], "Approved")
-    
-    retry_with_backoff(update)
-    
-    log_action(session["user"], f"Approved cash burn for {requester}: ${amount}", amount, "Approved")
-    flash("Cash burn approved!")
-    cache.invalidate("pending_cashburns")
-    return redirect(url_for("federal_reserve"))
+    try:
+        def get_burn():
+            cashburns_sheet = sheet.worksheet("CashBurns")
+            cashburn = cashburns_sheet.row_values(row_index)
+            header = cashburns_sheet.row_values(1)
+            return cashburns_sheet, cashburn, header
+        
+        cashburns_sheet, cashburn, header = retry_with_backoff(get_burn)
+        col_index = {name: idx + 1 for idx, name in enumerate(header)}
+        
+        requester = cashburn[col_index["Requester"] - 1]
+        amount = float(cashburn[col_index["Amount"] - 1])
+        
+        # Deduct from user's balance
+        current_balance = get_user_balance(requester)
+        update_balance(requester, current_balance - amount)
+        
+        # Add transaction
+        add_transaction(requester, "Cash Burn", amount, "Cash burn approved")
+        
+        # Update status
+        def update():
+            cashburns_sheet.update_cell(row_index, col_index["Status"], "Approved")
+        
+        retry_with_backoff(update)
+        
+        log_action(session["user"], f"Approved cash burn for {requester}: ${amount}", amount, "Approved")
+        flash("Cash burn approved!")
+        cache.invalidate("pending_cashburns")
+        
+        # Return JSON for AJAX requests
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": True, "message": "Cash burn approved!"})
+        return redirect(url_for("federal_reserve"))
+    except Exception as e:
+        error_msg = "API quota exceeded. Please wait a moment and try again." if "quota" in str(e).lower() else f"Error: {str(e)}"
+        flash(error_msg, "error")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 429 if "quota" in str(e).lower() else 500
+        return redirect(url_for("federal_reserve"))
 
 @app.route("/deny_cashburn/<int:row_index>", methods=["POST"])
 @role_required("Banker")
 def deny_cashburn_route(row_index):
-    def get_and_update():
-        cashburns_sheet = sheet.worksheet("CashBurns")
-        header = cashburns_sheet.row_values(1)
-        col_index = {name: idx + 1 for idx, name in enumerate(header)}
-        cashburns_sheet.update_cell(row_index, col_index["Status"], "Denied")
-    
-    retry_with_backoff(get_and_update)
-    flash("Cash burn request denied!")
-    cache.invalidate("pending_cashburns")
-    return redirect(url_for("federal_reserve"))
+    try:
+        def get_and_update():
+            cashburns_sheet = sheet.worksheet("CashBurns")
+            header = cashburns_sheet.row_values(1)
+            col_index = {name: idx + 1 for idx, name in enumerate(header)}
+            cashburns_sheet.update_cell(row_index, col_index["Status"], "Denied")
+        
+        retry_with_backoff(get_and_update)
+        flash("Cash burn request denied!")
+        cache.invalidate("pending_cashburns")
+        
+        # Return JSON for AJAX requests
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": True, "message": "Cash burn denied!"})
+        return redirect(url_for("federal_reserve"))
+    except Exception as e:
+        error_msg = "API quota exceeded. Please wait a moment and try again." if "quota" in str(e).lower() else f"Error: {str(e)}"
+        flash(error_msg, "error")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 429 if "quota" in str(e).lower() else 500
+        return redirect(url_for("federal_reserve"))
 
 @app.route("/approve_teacher_request/<int:row_index>", methods=["POST"])
 @role_required("Banker")
 def approve_teacher_request(row_index):
-    def get_request_and_create():
-        teacher_requests_sheet = sheet.worksheet("TeacherRequests")
-        row = teacher_requests_sheet.row_values(row_index)
-        
-        if len(row) >= 3:
-            username = row[0]
-            password = row[1]
-            
-            # Create teacher account
-            users_sheet.append_row([username, password, "0", "No", "Teacher"])
-            
-            # Update request status
+    try:
+        def get_request_and_create():
+            teacher_requests_sheet = sheet.worksheet("TeacherRequests")
             header = teacher_requests_sheet.row_values(1)
-            col_index = {name: idx + 1 for idx, name in enumerate(header)}
-            teacher_requests_sheet.update_cell(row_index, col_index["Status"], "Approved")
-            teacher_requests_sheet.update_cell(row_index, col_index["Approved By"], session["user"])
+            row = teacher_requests_sheet.row_values(row_index)
             
-            return username
-        return None
-    
-    username = retry_with_backoff(get_request_and_create)
-    
-    if username:
-        log_action(session["user"], f"Approved teacher account for {username}", None, "Approved")
-        flash(f"Teacher account created for {username}!", "success")
-    else:
-        flash("Error approving teacher request", "error")
-    
-    cache.invalidate("pending_teacher_requests")
-    cache.invalidate_pattern("users")
-    return redirect(url_for("federal_reserve"))
+            # Expected header: Username, Password, Email, Status, ApprovedBy, Requested Date
+            if len(row) >= 3:
+                username = row[0]  # Username
+                password = row[1]  # Password
+                email = row[2] if len(row) > 2 else ""  # Email
+                
+                # Generate card number and PIN for teacher
+                card_number = generate_card_number()
+                pin = generate_pin()
+                
+                # Create teacher account with email
+                users_sheet.append_row([username, password, "0", "No", "Teacher", email, "Personal", card_number, pin])
+                
+                # Update request status
+                col_index = {name: idx + 1 for idx, name in enumerate(header)}
+                teacher_requests_sheet.update_cell(row_index, col_index.get("Status", 4), "Approved")
+                teacher_requests_sheet.update_cell(row_index, col_index.get("ApprovedBy", 5), session["user"])
+                
+                return username
+            return None
+        
+        username = retry_with_backoff(get_request_and_create)
+        
+        if username:
+            log_action(session["user"], f"Approved teacher account for {username}", None, "Approved")
+            flash(f"Teacher account created for {username}!", "success")
+        else:
+            flash("Error approving teacher request", "error")
+        
+        cache.invalidate("pending_teacher_requests")
+        cache.invalidate_pattern("users")
+        
+        # Return JSON for AJAX requests
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            if username:
+                return jsonify({"success": True, "message": f"Teacher account created for {username}!"})
+            else:
+                return jsonify({"success": False, "message": "Error approving teacher request"})
+        return redirect(url_for("federal_reserve"))
+    except Exception as e:
+        error_msg = "API quota exceeded. Please wait a moment and try again." if "quota" in str(e).lower() else f"Error: {str(e)}"
+        flash(error_msg, "error")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 429 if "quota" in str(e).lower() else 500
+        return redirect(url_for("federal_reserve"))
 
 @app.route("/deny_teacher_request/<int:row_index>", methods=["POST"])
 @role_required("Banker")
 def deny_teacher_request(row_index):
+    try:
+        def get_and_update():
+            teacher_requests_sheet = sheet.worksheet("TeacherRequests")
+            row = teacher_requests_sheet.row_values(row_index)
+            username = row[0] if len(row) > 0 else "Unknown"
+            
+            header = teacher_requests_sheet.row_values(1)
+            col_index = {name: idx + 1 for idx, name in enumerate(header)}
+            teacher_requests_sheet.update_cell(row_index, col_index.get("Status", 4), "Denied")
+            teacher_requests_sheet.update_cell(row_index, col_index.get("ApprovedBy", 5), session["user"])
+            
+            return username
+        
+        username = retry_with_backoff(get_and_update)
+        log_action(session["user"], f"Denied teacher account request for {username}", None, "Denied")
+        flash(f"Teacher request for {username} denied", "info")
+        cache.invalidate("pending_teacher_requests")
+        
+        # Return JSON for AJAX requests
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": True, "message": f"Teacher request for {username} denied"})
+        return redirect(url_for("federal_reserve"))
+    except Exception as e:
+        error_msg = "API quota exceeded. Please wait a moment and try again." if "quota" in str(e).lower() else f"Error: {str(e)}"
+        flash(error_msg, "error")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 429 if "quota" in str(e).lower() else 500
+        return redirect(url_for("federal_reserve"))
+
+@app.route("/approve_role_change/<int:row_index>", methods=["POST"])
+@role_required("Banker")
+def approve_role_change(row_index):
+    def get_request_and_update():
+        role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+        row = role_requests_sheet.row_values(row_index)
+        
+        if len(row) >= 3:
+            username = row[0]
+            requested_role = row[2]
+            
+            # Update user's role in Users sheet
+            all_users = get_all_users()
+            user = next((u for u in all_users if u["Username"] == username), None)
+            
+            if user:
+                cell = users_sheet.find(username)
+                if cell:
+                    users_sheet.update_cell(cell.row, 5, requested_role)  # Column 5 is Role
+            
+            # Update request status
+            header = role_requests_sheet.row_values(1)
+            col_index = {name: idx + 1 for idx, name in enumerate(header)}
+            role_requests_sheet.update_cell(row_index, col_index["Status"], "Approved")
+            
+            return username, requested_role
+        return None, None
+    
+    username, new_role = retry_with_backoff(get_request_and_update)
+    
+    if username:
+        log_action(session["user"], f"Approved role change for {username} to {new_role}", None, "Approved")
+        flash(f"Role changed! {username} is now a {new_role}.", "success")
+        cache.invalidate_pattern("users")
+        cache.invalidate("pending_role_change_requests")
+    else:
+        flash("Error approving role change request", "error")
+    
+    return redirect(url_for("federal_reserve"))
+
+@app.route("/deny_role_change/<int:row_index>", methods=["POST"])
+@role_required("Banker")
+def deny_role_change(row_index):
     def get_and_update():
-        teacher_requests_sheet = sheet.worksheet("TeacherRequests")
-        row = teacher_requests_sheet.row_values(row_index)
+        role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+        row = role_requests_sheet.row_values(row_index)
         username = row[0] if len(row) > 0 else "Unknown"
         
-        header = teacher_requests_sheet.row_values(1)
+        header = role_requests_sheet.row_values(1)
         col_index = {name: idx + 1 for idx, name in enumerate(header)}
-        teacher_requests_sheet.update_cell(row_index, col_index["Status"], "Denied")
-        teacher_requests_sheet.update_cell(row_index, col_index["Approved By"], session["user"])
+        role_requests_sheet.update_cell(row_index, col_index["Status"], "Denied")
         
         return username
     
     username = retry_with_backoff(get_and_update)
-    log_action(session["user"], f"Denied teacher account request for {username}", None, "Denied")
-    flash(f"Teacher request for {username} denied", "info")
-    cache.invalidate("pending_teacher_requests")
+    log_action(session["user"], f"Denied role change request for {username}", None, "Denied")
+    flash(f"Role change request for {username} denied", "info")
+    cache.invalidate("pending_role_change_requests")
     return redirect(url_for("federal_reserve"))
 
 def get_logs():
@@ -1748,11 +2230,32 @@ def federal_reserve():
     data = get_federal_reserve_stats()
     users = get_all_users_with_balances()
     
+    # Sanitize user data - ensure Balance is a float
+    sanitized_users = []
+    for u in users:
+        try:
+            # Create a copy of the user dict
+            user_copy = u.copy()
+            # Safely convert balance to float
+            balance_val = u.get("Balance", 0)
+            if balance_val == "" or balance_val is None:
+                user_copy["Balance"] = 0.0
+            else:
+                user_copy["Balance"] = float(balance_val)
+            sanitized_users.append(user_copy)
+        except (ValueError, TypeError):
+            # If conversion fails, log and skip this user or set balance to 0
+            print(f"Warning: Invalid balance for user {u.get('Username', 'Unknown')}: {u.get('Balance', 'N/A')}")
+            user_copy = u.copy()
+            user_copy["Balance"] = 0.0
+            sanitized_users.append(user_copy)
+    
     pending_loans = get_pending_loans()
     all_loans = get_all_loans()
     pending_deletions = get_pending_deletions()
     pending_cashburns = get_pending_cash_burns()
     pending_teacher_requests = get_pending_teacher_requests()
+    pending_role_changes = get_pending_role_change_requests()
     logs = get_logs()
     
     # Get bank account info
@@ -1764,16 +2267,122 @@ def federal_reserve():
     
     return render_template("federalreserve.html", 
                          data=data, 
-                         users=users,
+                         users=sanitized_users,
                          pending_loans=pending_loans,
                          all_loans=all_loans,
                          pending_deletions=pending_deletions,
                          pending_cashburns=pending_cashburns,
                          pending_teacher_requests=pending_teacher_requests,
+                         pending_role_changes=pending_role_changes,
                          logs=logs,
                          bank_account=bank_account,
                          project_end_date=project_end_date,
                          weeks_remaining=weeks_remaining)
+
+@app.route("/repair_user_data")
+@role_required("Banker")
+def repair_user_data():
+    """Repair corrupted user data where Balance column has role names"""
+    try:
+        header = users_sheet.row_values(1)
+        all_rows = users_sheet.get_all_values()
+        
+        # Find column indices
+        balance_col = header.index("Balance") + 1  # Column 3
+        role_col = header.index("Role") + 1  # Column 5
+        
+        repaired_count = 0
+        errors = []
+        
+        for idx, row in enumerate(all_rows[1:], start=2):  # Skip header, start at row 2
+            if len(row) >= max(balance_col, role_col):
+                balance_val = row[balance_col - 1] if balance_col <= len(row) else ""
+                role_val = row[role_col - 1] if role_col <= len(row) else ""
+                username = row[0] if len(row) > 0 else f"Row {idx}"
+                
+                # Check if balance contains a role name (Student/Teacher/Banker)
+                if balance_val in ["Student", "Teacher", "Banker"]:
+                    # Balance is corrupted - set to 0 and move value to Role column
+                    users_sheet.update_cell(idx, balance_col, 0)
+                    
+                    # If role column is empty or wrong, set it to the value from balance
+                    if not role_val or role_val not in ["Student", "Teacher", "Banker"]:
+                        users_sheet.update_cell(idx, role_col, balance_val)
+                    
+                    repaired_count += 1
+                    print(f"Repaired {username}: Balance '{balance_val}' → 0, Role → '{balance_val}'")
+                
+                # Also check if role column has numeric values (swapped data)
+                elif role_val and role_val.replace('.', '').replace('-', '').isdigit():
+                    # Role column has a number - might be swapped
+                    try:
+                        numeric_val = float(role_val)
+                        if balance_val in ["Student", "Teacher", "Banker"]:
+                            # Swap: balance has role, role has number
+                            users_sheet.update_cell(idx, balance_col, numeric_val)
+                            users_sheet.update_cell(idx, role_col, balance_val)
+                            repaired_count += 1
+                            print(f"Swapped {username}: Balance ← {numeric_val}, Role ← '{balance_val}'")
+                    except ValueError:
+                        pass
+        
+        # Invalidate cache after repairs
+        cache.invalidate("all_users")
+        cache.invalidate_pattern("users")
+        cache.invalidate_pattern("user_")
+        
+        flash(f"Repaired {repaired_count} user records", "success")
+        return redirect(url_for("federal_reserve"))
+        
+    except Exception as e:
+        flash(f"Error repairing data: {str(e)}", "error")
+        return redirect(url_for("federal_reserve"))
+
+@app.route("/generate_missing_cards")
+@role_required("Banker")
+def generate_missing_cards():
+    """Generate card numbers and PINs for accounts that don't have them"""
+    try:
+        header = users_sheet.row_values(1)
+        all_rows = users_sheet.get_all_values()
+        
+        # Find column indices
+        card_col = header.index("CardNumber") + 1 if "CardNumber" in header else None
+        pin_col = header.index("PIN") + 1 if "PIN" in header else None
+        
+        if not card_col or not pin_col:
+            flash("CardNumber or PIN column not found in Users sheet", "error")
+            return redirect(url_for("federal_reserve"))
+        
+        updated_count = 0
+        
+        # Start from row 2 (skip header)
+        for row_idx in range(2, len(all_rows) + 1):
+            row = all_rows[row_idx - 1]
+            
+            # Check if this row needs card number or PIN
+            needs_card = len(row) < card_col or not row[card_col - 1]
+            needs_pin = len(row) < pin_col or not row[pin_col - 1]
+            
+            if needs_card or needs_pin:
+                # Generate card and PIN
+                new_card = generate_card_number()
+                new_pin = generate_pin()
+                
+                # Update the cells
+                if needs_card:
+                    users_sheet.update_cell(row_idx, card_col, new_card)
+                if needs_pin:
+                    users_sheet.update_cell(row_idx, pin_col, new_pin)
+                
+                updated_count += 1
+        
+        cache.invalidate("all_users")
+        flash(f"Successfully generated card numbers and PINs for {updated_count} accounts!", "success")
+    except Exception as e:
+        flash(f"Error generating cards: {str(e)}", "error")
+    
+    return redirect(url_for("federal_reserve"))
 
 @app.route("/verify_bank_password", methods=["POST"])
 @role_required("Banker")
@@ -1873,6 +2482,119 @@ def transfer_from_bank():
     cache.invalidate_pattern("users")
     return redirect(url_for("federal_reserve"))
 
+@app.route("/save_system_setting", methods=["POST"])
+@role_required("Banker")
+def save_system_setting():
+    """Save system configuration settings"""
+    setting_type = request.form.get("setting_type", "")
+    value = request.form.get("value", "")
+    
+    if not setting_type or not value:
+        return jsonify({"success": False, "message": "Missing parameters"})
+    
+    try:
+        # Get the Reserve sheet (for storing config)
+        fed_sheet = sheet.worksheet("Reserve")
+        
+        # Get current config or create structure
+        try:
+            config_row = fed_sheet.find("SystemConfig", in_column=1)
+            if config_row:
+                row_num = config_row.row
+            else:
+                # Create config row
+                fed_sheet.append_row(["SystemConfig", "", "", "", "", "", ""])
+                row_num = len(fed_sheet.get_all_values())
+        except:
+            # If not found, append new row
+            fed_sheet.append_row(["SystemConfig", "", "", "", "", "", ""])
+            row_num = len(fed_sheet.get_all_values())
+        
+        # Map settings to columns
+        # Column mapping: A=Label, B=BankerPassword, C=TeacherPIN, D=CardPrefix, E=MaxInterest, F=MinInterest, G=ReserveReq
+        column_map = {
+            "banker_password": 2,  # Column B
+            "teacher_pin": 3,       # Column C
+            "card_prefix": 4,       # Column D
+            "max_interest": 5,      # Column E
+            "min_interest": 6,      # Column F
+            "reserve_requirement": 7 # Column G
+        }
+        
+        if setting_type == "project_end_date":
+            # Project end date uses the existing mechanism
+            fed_sheet.update_cell(2, 1, value)  # Update A2 with the date
+            cache.invalidate_pattern("federal")
+            return jsonify({"success": True, "message": "Project end date updated"})
+        
+        if setting_type not in column_map:
+            return jsonify({"success": False, "message": "Invalid setting type"})
+        
+        # Update the specific setting
+        col_num = column_map[setting_type]
+        fed_sheet.update_cell(row_num, col_num, value)
+        
+        # Invalidate cache
+        cache.invalidate_pattern("federal")
+        cache.invalidate_pattern("system_config")
+        
+        return jsonify({"success": True, "message": f"{setting_type} updated successfully"})
+        
+    except Exception as e:
+        print(f"Error saving system setting: {e}")
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route("/change_user_role", methods=["POST"])
+@role_required("Banker")
+def change_user_role():
+    """Change a user's role"""
+    username = request.form.get("username", "")
+    new_role = request.form.get("new_role", "")
+    
+    if not username or not new_role:
+        return jsonify({"success": False, "message": "Missing parameters"})
+    
+    # Validate role
+    valid_roles = ["Student", "Teacher", "Banker"]
+    if new_role not in valid_roles:
+        return jsonify({"success": False, "message": "Invalid role"})
+    
+    # Prevent changing Bank account
+    if username == "Bank":
+        return jsonify({"success": False, "message": "Cannot change Bank account role"})
+    
+    try:
+        # Find the user in the Users sheet
+        user_cell = users_sheet.find(username, in_column=1)
+        if not user_cell:
+            return jsonify({"success": False, "message": f"User {username} not found"})
+        
+        row_num = user_cell.row
+        
+        # Get header to find Role column index
+        # Expected: Username, Password, Balance, Frozen, Role, Email, AccountType, CardNumber, PIN
+        header = users_sheet.row_values(1)
+        try:
+            role_col_index = header.index("Role") + 1  # +1 because gspread uses 1-based indexing
+        except ValueError:
+            return jsonify({"success": False, "message": "Role column not found in sheet"})
+        
+        # Update the role (Column 5 - Role is at index 4, so column 5)
+        users_sheet.update_cell(row_num, role_col_index, new_role)
+        
+        # Log the action
+        log_action(session["user"], f"Changed {username}'s role to {new_role}", None, "Approved")
+        
+        # Invalidate cache
+        cache.invalidate_pattern("users")
+        cache.invalidate("all_users", f"user_data_{username}")
+        
+        return jsonify({"success": True, "message": f"Role changed to {new_role}"})
+        
+    except Exception as e:
+        print(f"Error changing user role: {e}")
+        return jsonify({"success": False, "message": str(e)})
+
 def get_bank_account():
     """Get the bank account info with caching"""
     cache_key = "bank_account"
@@ -1888,17 +2610,17 @@ def get_bank_account():
         if not bank_user:
             # Create bank account if it doesn't exist
             def create_bank():
-                users_sheet.append_row(["Bank", "BankPassword", "0", "No", "System"])
+                users_sheet.append_row(["Bank", "BankPassword", "0", "No", "System", "", "System", "0000-0000-0000-0000", "0000"])
             retry_with_backoff(create_bank)
             cache.invalidate_pattern("users")
-            bank_account = {"Username": "Bank", "Balance": "0", "Role": "System"}
+            bank_account = {"Username": "Bank", "Balance": "0", "Role": "System", "Email": "", "AccountType": "System", "CardNumber": "0000-0000-0000-0000", "PIN": "0000"}
         else:
             bank_account = bank_user
         
         cache.set(cache_key, bank_account)
         return bank_account
     except:
-        return {"Username": "Bank", "Balance": "0", "Role": "System"}
+        return {"Username": "Bank", "Balance": "0", "Role": "System", "Email": "", "AccountType": "System", "CardNumber": "0000-0000-0000-0000", "PIN": "0000"}
 
 def update_bank_balance(new_balance):
     """Update the bank account balance"""
@@ -1908,7 +2630,7 @@ def update_bank_balance(new_balance):
             users_sheet.update_cell(cell.row, 3, new_balance)
         else:
             # Create bank account if not found
-            users_sheet.append_row(["Bank", "BankPassword", str(new_balance), "No", "System"])
+            users_sheet.append_row(["Bank", "BankPassword", str(new_balance), "No", "System", "", "System", "0000-0000-0000-0000", "0000"])
     
     retry_with_backoff(update)
     cache.invalidate("bank_account")
@@ -1957,11 +2679,19 @@ def teacher_tools():
     users = get_all_users_with_balances()
     loans = get_all_loans()  # Add this
     
+    # Separate users into Personal and Company accounts
+    personal_students = [u for u in users if u.get("Role") == "Student" and u.get("AccountType") == "Personal"]
+    company_students = [u for u in users if u.get("Role") == "Student" and u.get("AccountType") == "Company"]
+    teachers = [u for u in users if u.get("Role") in ["Teacher", "Banker"]]
+    
     normalize_roles_column()
     
     return render_template(
         "teachertools.html",
         users=users,
+        personal_students=personal_students,
+        company_students=company_students,
+        teachers=teachers,
         username=username,
         loans=loans  # Pass loans
     )

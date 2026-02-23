@@ -93,6 +93,7 @@
   border: 1px solid var(--border);
   border-radius: var(--rounded);
   box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  position: relative;
 }
 
 
@@ -121,6 +122,21 @@
       font-size: 14px;
       margin: 0 auto 30px;
       width: fit-content;
+    }
+
+    .project-end-badge {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 10px 16px;
+      border-radius: 20px;
+      color: #ef4444;
+      font-weight: 600;
+      font-size: 13px;
+      white-space: nowrap;
+      z-index: 1000;
     }
 
     /* Card */
@@ -467,7 +483,7 @@
     </div>
     
     {% if project_end_date %}
-    <div class="interest-badge" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); color: #ef4444;">
+    <div class="project-end-badge">
       ⏰ Project Ends: {{ project_end_date }} ({{ max_weeks }} weeks remaining)
     </div>
     {% endif %}
@@ -542,6 +558,7 @@
 
     let hideTimeout = null;
     const rate = parseFloat('{{ irate }}');
+    const maxWeeks = parseInt('{{ max_weeks }}');
     
     const amountInput = document.getElementById('amount');
     const weeksInput = document.getElementById('weeks');
@@ -571,7 +588,7 @@
     amount >= 50 &&
     amount <= 1000 &&
     weeks >= 1 &&
-    weeks <= 9;
+    weeks <= maxWeeks;
 
   if (valid) {
     if (hideTimeout) {
