@@ -635,7 +635,7 @@
   <div class="modal">
     <h2>Make a Transaction</h2>
     <form method="POST" action="{{ url_for('transfer') }}" id="transferForm">
-      <div style="position: relative;">
+      <div style="position: relative; width: 100%;">
         <input 
           id="receiver-input" 
           name="receiver" 
@@ -649,7 +649,7 @@
         "></div>
       </div>
       
-      <div style="position: relative;">
+      <div style="position: relative; width: 100%;">
         <input 
           id="amount-input"
           name="amount" 
@@ -1043,17 +1043,8 @@ async function refreshTransactions() {
     }
   } catch (error) {
     console.error('Error refreshing transactions:', error);
-  }
-}
-
-  } catch (error) {
-    showToast('Network error. Please try again.', 'error');
-    transferSubmit.disabled = false;
-    transferSubmit.textContent = originalText;
-  }
-});
+  }}
 
 </script>
 
 </body>
-</html>
