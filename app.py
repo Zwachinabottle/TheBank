@@ -5,6 +5,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 from datetime import timedelta
 import time
+import re
 from threading import Lock
 
 app = Flask(__name__, static_folder='images')
@@ -157,6 +158,25 @@ def get_interest_rate():
 
     except (ValueError, KeyError, TypeError):
         return 0.025  # Default 2.5% if calculation fails
+
+def get_display_name_from_email(email):
+    """Extract display name from email (characters before the first dot)"""
+    if not email or not isinstance(email, str):
+        return ""
+    
+    # For company accounts with multiple emails, use the first one
+    if ',' in email:
+        email = email.split(',')[0].strip()
+    
+    # Extract the part before @ 
+    if '@' in email:
+        local_part = email.split('@')[0]
+        # Get everything before the first dot
+        if '.' in local_part:
+            return local_part.split('.')[0].capitalize()
+        return local_part.capitalize()
+    
+    return ""
 
 def get_all_users():
     """Get all users with caching"""
@@ -342,6 +362,30 @@ def generate_pin():
     import random
     return ''.join([str(random.randint(0, 9)) for _ in range(4)])
 
+def validate_username(username):
+    """Validate username format and length"""
+    if not username or len(username) < 3:
+        return False, "Username must be at least 3 characters long"
+    if len(username) > 30:
+        return False, "Username must be less than 30 characters"
+    return True, ""
+
+def validate_password(password):
+    """Validate password length"""
+    if not password or len(password) < 4:
+        return False, "Password must be at least 4 characters long"
+    if len(password) > 30:
+        return False, "Password must be less than 30 characters"
+    return True, ""
+
+def validate_email(email):
+    """Validate email ends with @mypisd.net"""
+    if not email:
+        return False, "Email is required"
+    if not email.lower().endswith("@mypisd.net"):
+        return False, "Email must end with @mypisd.net"
+    return True, ""
+
 def create_account(username, password, email="", account_type="Personal"):
     """Create account and invalidate user cache"""
     card_number = generate_card_number()
@@ -430,7 +474,29 @@ def ensure_fed_sheet():
     # Ensure row 2 exists
     if len(fed_sheet.get_all_values()) < 2:
         fed_sheet.insert_row([""] * len(existing_headers), 2)
+
+def ensure_logs_sheet():
+    """Ensure Logs sheet has proper headers"""
+    try:
+        logs_sheet = sheet.worksheet("Logs")
+    except:
+        # Create Logs sheet if it doesn't exist
+        logs_sheet = sheet.add_worksheet("Logs", rows=1000, cols=5)
+    
+    required_headers = ["User", "Action", "Amount", "Acceptance", "Timestamp"]
+    existing_headers = logs_sheet.row_values(1)
+    
+    # If header row is empty, write full header
+    if not existing_headers or existing_headers == ['', '', '', '', '']:
+        logs_sheet.update('A1:E1', [required_headers])
+        return
+    
+    # Fix headers if they exist but are wrong
+    if existing_headers[:5] != required_headers:
+        logs_sheet.update('A1:E1', [required_headers])
+
 ensure_fed_sheet()
+ensure_logs_sheet()
 
 def get_fed_columns():
     """Get federal reserve column mapping with caching"""
@@ -1537,6 +1603,175 @@ def transfer():
     return redirect(url_for("account"))
 
 
+@app.route("/change_username", methods=["POST"])
+def change_username():
+    """Allow users to change their username"""
+    if "user" not in session:
+        flash("Please log in first", "error")
+        return redirect(url_for("login"))
+    
+    current_username = session["user"]
+    new_username = request.form.get("new_username", "").strip()
+    password = request.form.get("password", "")
+    
+    # Validate inputs
+    if not new_username or not password:
+        flash("Please provide both a new username and password", "error")
+        return redirect(url_for("account"))
+    
+    # Validate username format
+    valid, error_msg = validate_username(new_username)
+    if not valid:
+        flash(error_msg, "error")
+        return redirect(url_for("account"))
+    
+    if new_username == current_username:
+        flash("New username is the same as current username", "error")
+        return redirect(url_for("account"))
+    
+    # Check if new username already exists
+    all_users = get_all_users()
+    if any(u["Username"] == new_username for u in all_users):
+        flash("Username already taken", "error")
+        return redirect(url_for("account"))
+    
+    # Verify password
+    current_user = next((u for u in all_users if u["Username"] == current_username), None)
+    if not current_user or current_user.get("Password") != password:
+        flash("Incorrect password", "error")
+        return redirect(url_for("account"))
+    
+    try:
+        # Update username in Users sheet
+        def update_users():
+            header = users_sheet.row_values(1)
+            all_rows = users_sheet.get_all_values()
+            username_col = header.index("Username") + 1
+            
+            for row_idx, row in enumerate(all_rows[1:], start=2):
+                if row[0] == current_username:
+                    users_sheet.update_cell(row_idx, username_col, new_username)
+                    break
+        
+        retry_with_backoff(update_users)
+        
+        # Update username in Transactions sheet (both Sender and Receiver columns)
+        def update_transactions():
+            transactions_sheet = sheet.worksheet("Transactions")
+            header = transactions_sheet.row_values(1)
+            all_rows = transactions_sheet.get_all_values()
+            
+            sender_col = header.index("Sender") + 1
+            receiver_col = header.index("Receiver") + 1
+            
+            for row_idx, row in enumerate(all_rows[1:], start=2):
+                if len(row) >= max(sender_col, receiver_col):
+                    if row[sender_col - 1] == current_username:
+                        transactions_sheet.update_cell(row_idx, sender_col, new_username)
+                    if row[receiver_col - 1] == current_username:
+                        transactions_sheet.update_cell(row_idx, receiver_col, new_username)
+        
+        retry_with_backoff(update_transactions)
+        
+        # Update username in Loans sheet
+        def update_loans():
+            header = loans_sheet.row_values(1)
+            all_rows = loans_sheet.get_all_values()
+            
+            if "Username" in header:
+                username_col = header.index("Username") + 1
+                for row_idx, row in enumerate(all_rows[1:], start=2):
+                    if len(row) >= username_col and row[username_col - 1] == current_username:
+                        loans_sheet.update_cell(row_idx, username_col, new_username)
+        
+        retry_with_backoff(update_loans)
+        
+        # Update username in Logs sheet if it exists
+        try:
+            def update_logs():
+                logs_sheet = sheet.worksheet("Logs")
+                header = logs_sheet.row_values(1)
+                all_rows = logs_sheet.get_all_values()
+                
+                if "User" in header:
+                    user_col = header.index("User") + 1
+                    for row_idx, row in enumerate(all_rows[1:], start=2):
+                        if len(row) >= user_col and row[user_col - 1] == current_username:
+                            logs_sheet.update_cell(row_idx, user_col, new_username)
+            
+            retry_with_backoff(update_logs)
+        except:
+            pass  # Logs sheet might not exist or might not have records
+        
+        # Update username in CashBurns sheet if it exists
+        try:
+            def update_cashburns():
+                cashburns_sheet = sheet.worksheet("CashBurns")
+                header = cashburns_sheet.row_values(1)
+                all_rows = cashburns_sheet.get_all_values()
+                
+                if "Requester" in header:
+                    requester_col = header.index("Requester") + 1
+                    for row_idx, row in enumerate(all_rows[1:], start=2):
+                        if len(row) >= requester_col and row[requester_col - 1] == current_username:
+                            cashburns_sheet.update_cell(row_idx, requester_col, new_username)
+            
+            retry_with_backoff(update_cashburns)
+        except:
+            pass
+        
+        # Update username in Deletions sheet if it exists
+        try:
+            def update_deletions():
+                deletions_sheet = sheet.worksheet("Deletions")
+                header = deletions_sheet.row_values(1)
+                all_rows = deletions_sheet.get_all_values()
+                
+                if "Username" in header:
+                    username_col = header.index("Username") + 1
+                    for row_idx, row in enumerate(all_rows[1:], start=2):
+                        if len(row) >= username_col and row[username_col - 1] == current_username:
+                            deletions_sheet.update_cell(row_idx, username_col, new_username)
+            
+            retry_with_backoff(update_deletions)
+        except:
+            pass
+        
+        # Update username in RoleChangeRequests sheet if it exists
+        try:
+            def update_role_requests():
+                role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+                header = role_requests_sheet.row_values(1)
+                all_rows = role_requests_sheet.get_all_values()
+                
+                if "Username" in header:
+                    username_col = header.index("Username") + 1
+                    for row_idx, row in enumerate(all_rows[1:], start=2):
+                        if len(row) >= username_col and row[username_col - 1] == current_username:
+                            role_requests_sheet.update_cell(row_idx, username_col, new_username)
+            
+            retry_with_backoff(update_role_requests)
+        except:
+            pass
+        
+        # Update session with new username
+        session["user"] = new_username
+        
+        # Invalidate all relevant caches
+        cache.invalidate_pattern("user")
+        cache.invalidate("all_users")
+        cache.invalidate("transactions")
+        cache.invalidate("loans")
+        cache.invalidate("logs")
+        
+        # Log the action
+        log_action(new_username, f"Changed username from {current_username} to {new_username}", None, "Approved")
+        
+        flash(f"Username successfully changed to {new_username}!", "success")
+    except Exception as e:
+        flash(f"Error changing username: {str(e)}", "error")
+    
+    return redirect(url_for("account"))
 
 
 @app.route("/logout")
@@ -1621,28 +1856,68 @@ def unfreeze_account_route():
 @app.post("/create_account")
 @role_required("Teacher", "Banker")
 def create_account_route():
-    username = request.form["new_username"]
+    username = request.form["new_username"].strip()
     password = request.form["new_password"]
     email = request.form.get("email", "").strip()
     account_type = request.form.get("account_type", "Personal")
+
+    # Validate username
+    valid, error_msg = validate_username(username)
+    if not valid:
+        flash(error_msg, "error")
+        return redirect(url_for("teacher_tools"))
+    
+    # Validate password
+    valid, error_msg = validate_password(password)
+    if not valid:
+        flash(error_msg, "error")
+        return redirect(url_for("teacher_tools"))
+    
+    # Validate email if provided
+    if email:
+        if account_type == "Personal":
+            valid, error_msg = validate_email(email)
+            if not valid:
+                flash(error_msg, "error")
+                return redirect(url_for("teacher_tools"))
+        elif account_type == "Company":
+            # Validate all emails in comma-separated list
+            email_list = [e.strip() for e in email.split(',')]
+            for single_email in email_list:
+                valid, error_msg = validate_email(single_email)
+                if not valid:
+                    flash(f"{error_msg} (for {single_email})", "error")
+                    return redirect(url_for("teacher_tools"))
 
     # Prevent duplicates
     users = get_all_users()
     if any(u["Username"] == username for u in users):
-        flash("Username already exists.")
+        flash("Username already exists.", "error")
         return redirect(url_for("teacher_tools"))
 
     create_account(username, password, email, account_type)
-    flash("Account created successfully!")
+    flash("Account created successfully!", "success")
     return redirect(url_for("teacher_tools"))
 
 @app.route("/create_student_account", methods=["POST"])
 def create_student_account():
-    username = request.form["new_username"]
+    username = request.form["new_username"].strip()
     password = request.form["new_password"]
     confirm = request.form["confirm_password"]
     email = request.form.get("email", "").strip()
     account_type = request.form.get("account_type", "Personal")
+
+    # Validate username
+    valid, error_msg = validate_username(username)
+    if not valid:
+        flash(error_msg, "error")
+        return redirect(url_for("login"))
+    
+    # Validate password
+    valid, error_msg = validate_password(password)
+    if not valid:
+        flash(error_msg, "error")
+        return redirect(url_for("login"))
 
     # Server-side password confirmation check
     if password != confirm:
@@ -1661,6 +1936,12 @@ def create_student_account():
             flash("Email is required for personal accounts!", "error")
             return redirect(url_for("login"))
         
+        # Validate email domain
+        valid, error_msg = validate_email(email)
+        if not valid:
+            flash(error_msg, "error")
+            return redirect(url_for("login"))
+        
         # Check if email already exists
         if any(u.get("Email", "").strip().lower() == email.lower() for u in users):
             flash("This email is already registered!", "error")
@@ -1671,6 +1952,14 @@ def create_student_account():
         if not email:
             flash("At least one email is required for company accounts!", "error")
             return redirect(url_for("login"))
+        
+        # Validate all emails in comma-separated list
+        email_list = [e.strip() for e in email.split(',')]
+        for single_email in email_list:
+            valid, error_msg = validate_email(single_email)
+            if not valid:
+                flash(f"{error_msg} (for {single_email})", "error")
+                return redirect(url_for("login"))
 
     # Create account with $0 balance and Student role
     create_account(username, password, email, account_type)
@@ -1679,10 +1968,22 @@ def create_student_account():
 
 @app.route("/request_teacher_account", methods=["POST"])
 def request_teacher_account():
-    username = request.form["new_username"]
+    username = request.form["new_username"].strip()
     password = request.form["new_password"]
     confirm = request.form["confirm_password"]
     email = request.form.get("email", "").strip()
+
+    # Validate username
+    valid, error_msg = validate_username(username)
+    if not valid:
+        flash(error_msg, "error")
+        return redirect(url_for("teacher_tools_login"))
+    
+    # Validate password
+    valid, error_msg = validate_password(password)
+    if not valid:
+        flash(error_msg, "error")
+        return redirect(url_for("teacher_tools_login"))
 
     # Server-side password confirmation check
     if password != confirm:
@@ -1698,6 +1999,12 @@ def request_teacher_account():
     # Validate email
     if not email:
         flash("Email is required for teacher accounts!", "error")
+        return redirect(url_for("teacher_tools_login"))
+    
+    # Validate email domain
+    valid, error_msg = validate_email(email)
+    if not valid:
+        flash(error_msg, "error")
         return redirect(url_for("teacher_tools_login"))
 
     # Add to teacher requests sheet for banker approval
@@ -2214,10 +2521,10 @@ def get_logs():
                 "Action": log.get("Action", ""),
                 "Amount": log.get("Amount", ""),
                 "Acceptance": log.get("Acceptance", ""),
-                "Date": log.get("Date", "")
+                "Date": log.get("Timestamp", "")  # Using Timestamp column
             })
         # Sort by date, newest first
-        logs.sort(key=lambda x: x["Date"], reverse=True)
+        logs.sort(key=lambda x: x.get("Date", ""), reverse=True)
         cache.set(cache_key, logs)
         return logs
     except:
@@ -2678,6 +2985,10 @@ def teacher_tools():
     username = session["user"]
     users = get_all_users_with_balances()
     loans = get_all_loans()  # Add this
+    
+    # Add display names to all users based on their email
+    for user in users:
+        user["DisplayName"] = get_display_name_from_email(user.get("Email", ""))
     
     # Separate users into Personal and Company accounts
     personal_students = [u for u in users if u.get("Role") == "Student" and u.get("AccountType") == "Personal"]
