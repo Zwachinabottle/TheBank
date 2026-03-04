@@ -85,6 +85,18 @@ users_sheet = sheet.worksheet("Users")
 transactions_sheet = sheet.worksheet("Transactions")
 fed_sheet = sheet.worksheet("Reserve")
 loans_sheet = sheet.worksheet("Loans")
+
+# Ensure Transactions sheet has a proper header row
+trans_required_headers = ["Sender", "Receiver", "Amount", "Date", "Comment"]
+trans_header = transactions_sheet.row_values(1)
+if not trans_header or trans_header[0] != "Sender":
+    if not trans_header:
+        # Sheet is empty — write headers to row 1
+        transactions_sheet.update('A1:E1', [trans_required_headers])
+    else:
+        # Sheet has data rows but no header — insert header row at the top
+        transactions_sheet.insert_row(trans_required_headers, 1)
+
 # Ensure sheet has required columns (but never delete existing headers!)
 header = users_sheet.row_values(1)
 
@@ -306,26 +318,77 @@ def get_user_balance(username):
     return balance
 
 def get_user_transactions(username):
-    """Get user transactions with caching"""
+    """Get user transactions with caching — merges Transactions sheet + teacher adjustments from Logs"""
     cache_key = f"transactions_{username}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    
-    def fetch():
+
+    def fetch_transactions():
         return transactions_sheet.get_all_records()
-    
-    rows = retry_with_backoff(fetch)
+
+    def fetch_logs():
+        try:
+            logs = sheet.worksheet("Logs")
+            return logs.get_all_records()
+        except Exception:
+            return []
+
+    rows = retry_with_backoff(fetch_transactions)
     formatted = []
 
+    # Pull from Transactions sheet
     for t in rows:
-        if t["Sender"] == username or t["Receiver"] == username:
+        if t.get("Sender") == username or t.get("Receiver") == username:
+            try:
+                amount = float(t["Amount"])
+            except (ValueError, TypeError):
+                continue
             formatted.append({
-                "Sender": t["Sender"],
-                "Receiver": t["Receiver"],
-                "Amount": float(t["Amount"]),
-                "Date": t["Date"],
+                "Sender": t.get("Sender", ""),
+                "Receiver": t.get("Receiver", ""),
+                "Amount": amount,
+                "Date": t.get("Date", ""),
                 "Comment": t.get("Comment", "No comment")
+            })
+
+    # Also pull teacher adjustments from Logs that reference this student
+    log_rows = retry_with_backoff(fetch_logs)
+    for log in log_rows:
+        action = log.get("Action", "")
+        teacher = log.get("User", "")
+        timestamp = log.get("Timestamp", "")
+        try:
+            amount = float(log.get("Amount", 0))
+        except (ValueError, TypeError):
+            continue
+
+        # Match "Added $X to <username>"
+        if re.search(rf"\bAdded\b.*\bto {re.escape(username)}\b", action, re.IGNORECASE):
+            formatted.append({
+                "Sender": teacher,
+                "Receiver": username,
+                "Amount": amount,
+                "Date": timestamp,
+                "Comment": f"Teacher credit by {teacher}"
+            })
+        # Match "Subtracted $X from <username>"
+        elif re.search(rf"\bSubtracted\b.*\bfrom {re.escape(username)}\b", action, re.IGNORECASE):
+            formatted.append({
+                "Sender": teacher,
+                "Receiver": username,
+                "Amount": amount,
+                "Date": timestamp,
+                "Comment": f"Teacher deduction by {teacher}"
+            })
+        # Match "Set balance to $X for <username>"
+        elif re.search(rf"\bSet balance\b.*\bfor {re.escape(username)}\b", action, re.IGNORECASE):
+            formatted.append({
+                "Sender": teacher,
+                "Receiver": username,
+                "Amount": amount,
+                "Date": timestamp,
+                "Comment": f"Balance set by {teacher}"
             })
 
     formatted.sort(key=lambda x: x["Date"], reverse=True)
@@ -556,8 +619,22 @@ def ensure_logs_sheet():
     if existing_headers[:5] != required_headers:
         logs_sheet.update('A1:E1', [required_headers])
 
+def ensure_deletions_sheet():
+    """Ensure Deletions sheet exists with proper headers"""
+    try:
+        deletions_sheet = sheet.worksheet("Deletions")
+    except:
+        deletions_sheet = sheet.add_worksheet("Deletions", rows=1000, cols=5)
+
+    required_headers = ["Username", "Requester", "Reason", "Date", "Status"]
+    existing_headers = deletions_sheet.row_values(1)
+
+    if not existing_headers or existing_headers == ['', '', '', '', '']:
+        deletions_sheet.update('A1:E1', [required_headers])
+
 ensure_fed_sheet()
 ensure_logs_sheet()
+ensure_deletions_sheet()
 
 def get_fed_columns():
     """Get federal reserve column mapping with caching"""
@@ -2194,6 +2271,18 @@ def delete_account():
     username = request.form["username"]
     reason = request.form["reason"]
     
+    # Write deletion request to Deletions sheet
+    def write_deletion():
+        deletions_sheet = sheet.worksheet("Deletions")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        deletions_sheet.append_row([username, session["user"], reason, now, "Pending"])
+
+    try:
+        retry_with_backoff(write_deletion)
+        cache.invalidate("pending_deletions")
+    except Exception as e:
+        print(f"Error writing deletion request: {e}")
+    
     # Log action with pending status
     log_action(session["user"], f"Requested deletion of {username}: {reason}", None, "Pending")
     
@@ -2227,6 +2316,7 @@ def add_money():
     
     # Log action
     log_action(session["user"], f"Added ${amount} to {username}", amount, "Approved")
+    cache.invalidate(f"transactions_{username}")
     
     flash(f"Added ${amount} to {username}")
     return redirect(url_for("teacher_tools"))
@@ -2248,6 +2338,7 @@ def subtract_money():
     
     # Log action
     log_action(session["user"], f"Subtracted ${amount} from {username}", amount, "Approved")
+    cache.invalidate(f"transactions_{username}")
     
     flash(f"Subtracted ${amount} from {username}")
     return redirect(url_for("teacher_tools"))
@@ -3256,13 +3347,12 @@ def adjust_money():
     if action == "add":
         new_balance = current_balance + amount
         log_action(session["user"], f"Added ${amount} to {username}", amount, "Approved")
-        add_transaction(session["user"], username, amount, f"Teacher credit by {session['user']}")
     else:
         new_balance = current_balance - amount
         log_action(session["user"], f"Subtracted ${amount} from {username}", amount, "Approved")
-        add_transaction(username, session["user"], amount, f"Teacher deduction by {session['user']}")
     
     update_balance(username, new_balance)
+    cache.invalidate(f"transactions_{username}")
     flash(f"Balance adjusted for {username}")
     return redirect(url_for("teacher_tools"))
 
@@ -3279,7 +3369,7 @@ def set_money():
     
     update_balance(username, amount)
     log_action(session["user"], f"Set balance to ${amount} for {username}", amount, "Approved")
-    add_transaction(session["user"], username, amount, f"Balance set to ${amount:.2f} by {session['user']}")
+    cache.invalidate(f"transactions_{username}")
     
     flash(f"Balance set to ${amount} for {username}")
     return redirect(url_for("teacher_tools"))
