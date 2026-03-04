@@ -3256,9 +3256,11 @@ def adjust_money():
     if action == "add":
         new_balance = current_balance + amount
         log_action(session["user"], f"Added ${amount} to {username}", amount, "Approved")
+        add_transaction(session["user"], username, amount, f"Teacher credit by {session['user']}")
     else:
         new_balance = current_balance - amount
         log_action(session["user"], f"Subtracted ${amount} from {username}", amount, "Approved")
+        add_transaction(username, session["user"], amount, f"Teacher deduction by {session['user']}")
     
     update_balance(username, new_balance)
     flash(f"Balance adjusted for {username}")
@@ -3277,6 +3279,7 @@ def set_money():
     
     update_balance(username, amount)
     log_action(session["user"], f"Set balance to ${amount} for {username}", amount, "Approved")
+    add_transaction(session["user"], username, amount, f"Balance set to ${amount:.2f} by {session['user']}")
     
     flash(f"Balance set to ${amount} for {username}")
     return redirect(url_for("teacher_tools"))

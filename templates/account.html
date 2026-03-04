@@ -43,6 +43,7 @@
       margin:0;
       min-height:100vh;
       display:flex;
+      align-items:flex-start;
       font-family: Inter, system-ui;
       background:var(--bg);
       color:var(--text);
@@ -54,6 +55,10 @@
     /* SIDE BANNERS */
     .side-banner-left {
       flex:1;
+      position:sticky;
+      top:0;
+      height:100vh;
+      overflow-y:auto;
       background:var(--bg2);
       border-right:1px solid var(--border);
       display:flex;
@@ -63,8 +68,12 @@
       gap:10px;
       padding-top: 40px;
     }
-      .side-banner-right {
+    .side-banner-right {
       flex:1;
+      position:sticky;
+      top:0;
+      height:100vh;
+      overflow-y:auto;
       background:var(--bg2);
       border-right:1px solid var(--border);
       display:flex;
@@ -99,12 +108,12 @@
     .center-column {
       flex:5;
       max-width:1200px;
+      min-width:0;
       margin:auto;
       padding:35px;
       background:var(--bg3);
       border-left:1px solid var(--border);
       border-right:1px solid var(--border);
-      overflow-y:auto;
     }
 
     h1 {
