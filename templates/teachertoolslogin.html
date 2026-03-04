@@ -660,7 +660,7 @@
     }
 
     // PIN Modal functions
-    const TEACHER_PIN = "4444"; // Change this to your desired PIN
+    const TEACHER_PIN = "{{ teacher_pin or '4444' }}"; // Loaded from server settings
     let pinVerified = false;
 
     function openPinModal() {

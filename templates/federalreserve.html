@@ -2,6 +2,7 @@
 <html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Federal Reserve</title>
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -31,8 +32,8 @@
 
     body {
       margin: 0;
-      height: 100vh;
-      overflow: hidden;
+      min-height: 100vh;
+      overflow-y: auto;
       font-family: "Inter", system-ui;
       color: var(--text);
       background: radial-gradient(800px 400px at 15% 10%, rgba(36,191,240,0.18), transparent 40%),
@@ -41,7 +42,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 40px;
+      padding: clamp(12px, 3vw, 40px);
       box-sizing: border-box;
     }
 
@@ -205,6 +206,101 @@
     .deny-btn:hover {
       background: rgba(239, 68, 68, 0.3);
       transform: translateY(-1px);
+    }
+
+    /* Currency Exchange Box */
+    .currency-exchange-box {
+      border-color: rgba(36,191,240,0.35);
+    }
+
+    .currency-rate-display {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 16px;
+      margin-bottom: 14px;
+    }
+
+    .currency-rate-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .currency-rate-value {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--brand);
+    }
+
+    .currency-conversion-form {}
+
+    .conversion-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .conversion-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      flex: 1;
+      min-width: 180px;
+    }
+
+    .conversion-field label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    .conversion-field select {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+    }
+
+    .conversion-arrow {
+      font-size: 20px;
+      color: var(--brand);
+      padding-bottom: 6px;
+    }
+
+    .conversion-amount-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .conversion-amount-row input {
+      flex: 1;
+      min-width: 140px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+    }
+
+    .conversion-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      white-space: nowrap;
     }
 
     /* Slide 3: Active Loans */
@@ -1043,10 +1139,66 @@
       }
     }
 
+    /* ── Responsive ─────────────────────────────────────── */
     @media (max-width: 1100px) {
-      .arrow {
+      .arrow { display: none; }
+    }
+
+    @media (max-width: 900px) {
+      /* Container expands to fit content */
+      .reserve-container { height: auto; max-height: none; }
+
+      /* Slider becomes a flex column; slides stack */
+      .slider { height: auto; overflow: visible; }
+      .slide {
+        position: relative;
+        top: auto; left: auto;
+        height: auto;
+        min-height: 0;
         display: none;
+        flex-direction: column;
+        overflow: visible;
       }
+      .slide.active { display: flex; }
+
+      /* Slide padding */
+      .slide { padding: 24px 18px; }
+      h2 { font-size: 20px; margin-bottom: 18px; }
+
+      /* Dots shrink */
+      .dots { flex-wrap: wrap; gap: 4px; }
+      .dot { width: 28px; height: 28px; font-size: 10px; }
+
+      /* Settings grid single column */
+      .settings-grid { grid-template-columns: 1fr !important; }
+
+      /* Utility section stacks */
+      .utility-section { flex-direction: column; }
+
+      /* Tables scroll horizontally */
+      .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      table { min-width: 480px; font-size: 13px; }
+
+      /* Currency exchange stacks */
+      .currency-exchange-box { padding: 16px; }
+      .conversion-row { flex-direction: column; align-items: stretch; }
+      .conversion-arrow { transform: rotate(90deg); align-self: center; }
+    }
+
+    @media (max-width: 600px) {
+      body { padding: 8px; }
+      .reserve-container { border-radius: 10px; }
+      .slide { padding: 16px 12px; }
+      h2 { font-size: 17px; }
+
+      /* Pig/stat numbers scale down */
+      .stat-value { font-size: 22px; }
+      .pig-icon { width: 80px; height: 80px; }
+
+      /* Full-width buttons */
+      .slide button[type=submit], .slide .btn { width: 100%; }
+
+      .theme-toggle-corner { top: 10px; right: 10px; }
     }
 
     /* Toast Notifications */
@@ -1342,6 +1494,47 @@
             {% else %}
             <p style="color: var(--text-muted); text-align: center;">No pending teacher requests</p>
             {% endif %}
+          </div>
+
+          <!-- Currency Exchange -->
+          <div class="utility-box currency-exchange-box">
+            <h3>&#8645; Personal &#8594; Company Currency Exchange</h3>
+            <div class="currency-rate-display">
+              <span class="currency-rate-label">Current Rate</span>
+              <span class="currency-rate-value">1 Personal$ = {{ "%.4f"|format(personal_to_company_rate) }} Company$</span>
+            </div>
+            <form method="POST" action="/convert_personal_to_company" class="currency-conversion-form">
+              <div class="conversion-row">
+                <div class="conversion-field">
+                  <label>Personal Account</label>
+                  <select name="personal_username" required>
+                    <option value="">Select personal account…</option>
+                    {% for u in users %}
+                      {% if u.get("AccountType") == "Personal" and u.get("Role") == "Student" %}
+                      <option value="{{ u.Username }}">{{ u.Username }} (${{ "%.2f"|format(u.Balance) }})</option>
+                      {% endif %}
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="conversion-arrow">&#8594;</div>
+                <div class="conversion-field">
+                  <label>Company Account</label>
+                  <select name="company_username" required>
+                    <option value="">Select company account…</option>
+                    {% for u in users %}
+                      {% if u.get("AccountType") == "Company" %}
+                      <option value="{{ u.Username }}">{{ u.Username }} (${{ "%.2f"|format(u.Balance) }})</option>
+                      {% endif %}
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+              <div class="conversion-amount-row">
+                <input type="number" name="amount" step="0.01" min="0.01" placeholder="Personal $ to deduct" required>
+                <span class="conversion-hint">&#215; {{ "%.4f"|format(personal_to_company_rate) }} = Company $</span>
+                <button type="submit" class="approve-btn" style="padding: 8px 18px;">Convert</button>
+              </div>
+            </form>
           </div>
         </div>
       </section>
@@ -1705,6 +1898,22 @@
               </div>
             </div>
 
+            <!-- Currency Exchange Rate (Full Width) -->
+            <div class="settings-group">
+              <h3>&#8645; Personal &#8594; Company Exchange Rate</h3>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <span class="setting-name">Conversion Rate</span>
+                  <span class="setting-description">How many Company dollars 1 Personal dollar is worth (currently: {{ "%.4f"|format(personal_to_company_rate) }}x)</span>
+                </label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="number" id="currency-conversion-rate" value="{{ personal_to_company_rate }}" step="0.0001" min="0.0001" class="setting-input" style="flex: 1;">
+                  <span style="color: var(--text-muted); font-size: 12px;">Company$</span>
+                  <button onclick="saveSettings('currency_conversion_rate')" class="setting-save-btn">Save</button>
+                </div>
+              </div>
+            </div>
+
             <!-- Role Management (Full Width) -->
             <div class="settings-group">
               <h3>👥 User Role Management</h3>
@@ -1956,6 +2165,14 @@
             return;
           }
           message = `Project end date updated to: ${value}`;
+          break;
+        case 'currency_conversion_rate':
+          value = document.getElementById('currency-conversion-rate').value;
+          if (!value || parseFloat(value) <= 0) {
+            alert('Rate must be greater than zero');
+            return;
+          }
+          message = `Personal→Company exchange rate set to ${parseFloat(value).toFixed(4)}x`;
           break;
       }
       

@@ -2,6 +2,7 @@
 <html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Account Dashboard</title>
 
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -40,12 +41,14 @@
 
     body {
       margin:0;
-      height:100vh;
+      min-height:100vh;
       display:flex;
       font-family: Inter, system-ui;
       background:var(--bg);
       color:var(--text);
-      overflow:hidden;
+      overflow-x:hidden;
+      overflow-y:auto;
+      flex-wrap: wrap;
     }
 
     /* SIDE BANNERS */
@@ -621,6 +624,53 @@
       background: var(--brand);
       color: white;
       border-color: var(--brand);
+    }
+
+    /* ── Responsive ─────────────────────────────────────── */
+    @media (max-width: 1100px) {
+      .side-banner-left, .side-banner-right { display: none; }
+      .center-column {
+        flex: 1 1 100%;
+        max-width: 100%;
+        border-left: none;
+        border-right: none;
+        border-radius: 0;
+        padding: 24px 20px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .center-column { padding: 20px 14px; }
+      h1 { font-size: 24px; margin-bottom: 16px; }
+
+      /* Info/stat rows stack */
+      .info-row, .stats-row { flex-direction: column; gap: 10px; }
+      .info-card, .stat-card { width: 100%; }
+
+      /* Tables scroll horizontally */
+      .table-wrap, .transactions-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      table { min-width: 480px; font-size: 13px; }
+
+      /* Modals full-width */
+      .modal-box { width: 95vw; max-width: 95vw; padding: 24px 16px; }
+
+      /* Action buttons stack in table cells */
+      .action-buttons { flex-direction: column; gap: 4px; }
+
+      .theme-toggle-corner { top: 10px; right: 10px; }
+    }
+
+    @media (max-width: 480px) {
+      .center-column { padding: 14px 10px; }
+      h1 { font-size: 20px; }
+
+      /* Buttons full width */
+      form button[type=submit] { width: 100%; }
+
+      /* Balance display tighter */
+      .balance-display { font-size: clamp(28px, 8vw, 48px); }
+
+      .bottom-left-btns { bottom: 8px; left: 8px; gap: 6px; }
     }
 </style>
 </head>

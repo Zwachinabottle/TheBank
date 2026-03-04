@@ -86,30 +86,106 @@
             flex-shrink: 0;
         }
 
+        /* ── Split layout ────────────────────────────── */
         .content-wrapper {
             flex: 1;
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            min-height: 0;
+            gap: 0;
         }
 
-        /* Custom scrollbar for content wrapper */
-        .content-wrapper::-webkit-scrollbar {
-            width: 8px;
+        /* Top pane – Student Accounts */
+        .pane-top {
+            display: flex;
+            flex-direction: column;
+            min-height: 80px;
+            overflow: hidden;
+        }
+        .pane-top > .box {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            margin-bottom: 0;
+        }
+        .pane-top .students-table-container {
+            flex: 1;
+            overflow-y: auto;
         }
 
-        .content-wrapper::-webkit-scrollbar-track {
-            background: var(--bg2);
-            border-radius: 4px;
+        /* Bottom row – Loans + Exchange Rate */
+        .pane-bottom {
+            display: flex;
+            flex-direction: row;
+            min-height: 80px;
+            overflow: hidden;
+        }
+        .pane-left, .pane-right {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-width: 120px;
+            flex: 1;
+        }
+        .pane-left > .box, .pane-right > .box {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            margin-bottom: 0;
+        }
+        .pane-left .table-container {
+            flex: 1;
+            overflow-y: auto;
+            max-height: none;
+        }
+        .pane-right-inner {
+            flex: 1;
+            overflow-y: auto;
         }
 
-        .content-wrapper::-webkit-scrollbar-thumb {
+        /* Resize bars */
+        .resize-h {
+            flex-shrink: 0;
+            height: 8px;
+            margin: 5px 0;
             background: var(--border);
             border-radius: 4px;
+            cursor: ns-resize;
+            position: relative;
+            transition: background 0.15s;
         }
-
-        .content-wrapper::-webkit-scrollbar-thumb:hover {
-            background: var(--brand);
+        .resize-h:hover, .resize-h.active { background: var(--brand); }
+        .resize-h::after {
+            content: '';
+            position: absolute;
+            left: 50%; top: 50%;
+            transform: translate(-50%,-50%);
+            width: 36px; height: 3px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 2px;
+        }
+        .resize-v {
+            flex-shrink: 0;
+            width: 8px;
+            margin: 0 5px;
+            background: var(--border);
+            border-radius: 4px;
+            cursor: ew-resize;
+            position: relative;
+            transition: background 0.15s;
+        }
+        .resize-v:hover, .resize-v.active { background: var(--brand); }
+        .resize-v::after {
+            content: '';
+            position: absolute;
+            left: 50%; top: 50%;
+            transform: translate(-50%,-50%);
+            width: 3px; height: 36px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 2px;
         }
 
         .box {
@@ -120,19 +196,6 @@
             border: 1px solid var(--border);
             position: relative;
             flex-shrink: 0;
-        }
-
-        .box:first-child {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
-            margin-bottom: 20px;
-        }
-
-        .box:first-child .students-table-container {
-            flex: 1;
-            max-height: none;
         }
 
         .box h2 {
@@ -535,6 +598,45 @@
             0 0 32px rgba(249, 115, 22, 0.6);
         }
 
+        /* Fixed center-bottom: Federal Reserve */
+        .bottom-center-btn {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1600;
+        }
+
+        /* Box header row with expand icon */
+        .box-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0;
+        }
+        .box-header h2 { margin: 0; }
+        .expand-icon-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            border-radius: 8px;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            transition: 0.2s;
+            flex-shrink: 0;
+        }
+        .expand-icon-btn:hover {
+            background: rgba(36,191,240,0.1);
+            border-color: var(--brand);
+            color: var(--brand);
+        }
+
         .fed-reserve-btn {
             padding: 12px 24px;
             background: linear-gradient(135deg, #f59e0b, #d97706);
@@ -799,10 +901,14 @@
         <h1>Teacher Tools</h1>
 
         <div class="content-wrapper">
-        <!-- ACCOUNTS BOX -->
+
+        <!-- TOP PANE: Student Accounts -->
+        <div class="pane-top" id="paneTop" style="flex: 3;">
         <div class="box">
-            <h2>Student Accounts</h2>
-            
+            <div class="box-header" style="margin-bottom: 15px;">
+                <h2>Student Accounts</h2>
+                <button class="expand-icon-btn" onclick="expandActiveStudentTab()" title="Expand fullscreen">&#x26F6;</button>
+            </div>
             <!-- Account Type Tabs -->
             <div style="display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 2px solid var(--border);">
                 <button class="tab-btn active" onclick="switchAccountTab('personal')" id="personal-tab">
@@ -815,7 +921,6 @@
             
             <!-- Personal Accounts Table -->
             <div class="students-table-container" id="personal-accounts" style="display: block;">
-                <button class="expand-btn" onclick="expandTable('personal-accounts', 'Personal Accounts')">⛶ Expand Fullscreen</button>
                 <table id="personal-accounts-table">
                     {% for u in personal_students %}
                     <tr>
@@ -828,8 +933,18 @@
                             {% endif %}
                         </td>
                         <td>${{ "%.2f"|format(u["Balance"]) }}</td>
-                        <td style="font-size: 12px; color: var(--text-muted);">
-                            Weekly: ${{ "%.2f"|format(u.get("WeeklyPayment", 0)|float) }}
+                        <td style="font-size: 12px;">
+                            {% set base_pay = u.get("WeeklyPayment", 0)|float %}
+                            {% if base_pay > 0 %}
+                                <span style="color: #22c55e; font-weight: 600;">${{ "%.2f"|format(base_pay * exchange_rate) }}/wk</span>
+                                {% if exchange_rate != 1.0 %}
+                                <div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">
+                                    base ${{ "%.2f"|format(base_pay) }} &times; {{ "%.4f"|format(exchange_rate) }}
+                                </div>
+                                {% endif %}
+                            {% else %}
+                                <span style="color: var(--text-muted);">No payment</span>
+                            {% endif %}
                         </td>
                         <td>
                             <button class="action-btn" onclick="openMoneyModal('{{ u['Username'] }}')">Adjust Money</button>
@@ -848,12 +963,10 @@
                     {% endfor %}
                 </table>
                 <button class="create-account-btn" onclick="openCreateModal()">Create New Account</button>
-                <button class="action-btn" style="margin-top: 10px;" onclick="processWeeklyPayments()">Process Weekly Payments</button>
             </div>
             
             <!-- Company Accounts Table -->
             <div class="students-table-container" id="company-accounts" style="display: none;">
-                <button class="expand-btn" onclick="expandTable('company-accounts', 'Company Accounts')">⛶ Expand Fullscreen</button>
                 <table id="company-accounts-table">
                     {% for u in company_students %}
                     <tr>
@@ -884,12 +997,22 @@
                 <button class="create-account-btn" onclick="openCreateModal()">Create New Account</button>
             </div>
         </div>
+        </div><!-- /pane-top -->
 
-        <!-- LOANS BOX -->
+        <!-- HORIZONTAL RESIZE BAR -->
+        <div class="resize-h" id="resizeH"></div>
+
+        <!-- BOTTOM PANE: Loans + Exchange Rate -->
+        <div class="pane-bottom" id="paneBottom" style="flex: 2;">
+
+        <!-- LEFT: Loans -->
+        <div class="pane-left" id="paneLeft" style="flex: 1;">
         <div class="box">
-            <h2>Loan Applications</h2>
-            <button class="expand-btn" onclick="expandTable('loans-container', 'Loan Applications')">⛶ Expand Fullscreen</button>
-            <div class="table-container" id="loans-container" style="max-height: 150px;">
+            <div class="box-header" style="margin-bottom: 12px;">
+                <h2>Loan Applications</h2>
+                <button class="expand-icon-btn" onclick="expandTable('loans-container', 'Loan Applications')" title="Expand fullscreen">&#x26F6;</button>
+            </div>
+            <div class="table-container" id="loans-container">
                 <table id="loans-table">
                     {% for loan in loans %}
                     <tr>
@@ -906,18 +1029,60 @@
                 </table>
             </div>
         </div>
+        </div><!-- /pane-left -->
 
-        <!-- Federal Reserve Button -->
-        <div style="text-align: center; margin-bottom: 0px;">
-            <a href="{{ url_for('federal_reserve') }}" class="fed-reserve-btn" style="position: static; transform: none;">
-                Federal Reserve
-            </a>
+        <!-- VERTICAL RESIZE BAR -->
+        <div class="resize-v" id="resizeV"></div>
+
+        <!-- RIGHT: Exchange Rate & Weekly Payments -->
+        <div class="pane-right" id="paneRight" style="flex: 1;">
+        <div class="box" style="display: flex; flex-direction: column; gap: 14px; height: 100%; overflow-y: auto;">
+            <h2 style="margin: 0;">Exchange Rate &amp; Weekly Payments</h2>
+
+            <!-- Exchange Rate display -->
+            <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                <div>
+                    <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">Current Rate</div>
+                    <div style="font-size: 26px; font-weight: 700; color: var(--brand); line-height: 1;">{{ "%.4f"|format(exchange_rate) }}&times;</div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                        {% if exchange_rate == 1.0 %}Normal — no adjustment
+                        {% elif exchange_rate > 1.0 %}+{{ ((exchange_rate - 1) * 100)|round(1) }}% boost
+                        {% else %}-{{ ((1 - exchange_rate) * 100)|round(1) }}% reduction{% endif %}
+                    </div>
+                </div>
+                <button onclick="openExchangeRateModal()" style="padding: 9px 16px; background: var(--brand); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; font-size: 13px; white-space: nowrap; box-shadow: 0 4px 12px rgba(36,191,240,0.3); transition: 0.2s;">✎ Update Rate</button>
+            </div>
+
+            <!-- Weekly payments -->
+            <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
+                <div style="font-weight: 600; margin-bottom: 6px;">Weekly Payments</div>
+                <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+                    {% set paying_students = personal_students | selectattr("WeeklyPayment") | list %}
+                    {% set nonzero_students = paying_students | selectattr("WeeklyPayment", "ne", "0") | selectattr("WeeklyPayment", "ne", "") | list %}
+                    <b style="color: var(--text);">{{ nonzero_students | length }}</b> student(s) have a payment set &mdash; each base amount &times; {{ "%.4f"|format(exchange_rate) }} rate.
+                </div>
+                <button onclick="processWeeklyPayments()" style="width: 100%; padding: 11px; background: #22c55e; border: none; border-radius: 10px; color: white; font-weight: 700; cursor: pointer; font-size: 14px; box-shadow: 0 4px 14px rgba(34,197,94,0.35); transition: 0.2s;">
+                    ▶ Pay Students
+                </button>
+            </div>
         </div>
-        </div> <!-- Close content-wrapper -->
+
+        </div>
+        </div><!-- /pane-right -->
+
+        </div><!-- /pane-bottom -->
+        </div><!-- /content-wrapper -->
     </div>
 
     <!-- Right Banner -->
     <div class="side-banner">Banner</div>
+
+    <!-- Federal Reserve (fixed center-bottom) -->
+    <div class="bottom-center-btn">
+        <a href="{{ url_for('federal_reserve') }}" class="fed-reserve-btn">
+            Federal Reserve
+        </a>
+    </div>
 
     <!-- CREATE ACCOUNT MODAL -->
     <div id="createModal" class="modal-bg">
@@ -1023,6 +1188,23 @@
                 <textarea name="reason" placeholder="Reason for cash burn" rows="3" required></textarea>
                 <button type="submit">Submit Request</button>
                 <button type="button" class="close-modal" onclick="closeModal('cashBurnModal')">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- EXCHANGE RATE MODAL -->
+    <div id="exchangeRateModal" class="modal-bg">
+        <div class="modal-box">
+            <h3>Update Exchange Rate</h3>
+            <p style="text-align: center; color: var(--text-muted); margin-bottom: 15px; font-size: 13px;">
+                Multiplier applied to every student's base weekly payment.
+            </p>
+            <form method="POST" action="/set_exchange_rate">
+                <input type="hidden" name="time_period" value="">
+                <input type="number" name="exchange_rate" id="erRate" placeholder="Multiplier (e.g. 1.5)" value="{{ '%.4f'|format(exchange_rate) }}" step="0.0001" min="0.0001" required>
+                <label style="font-size: 12px; color: var(--text-muted); display: block; margin: -8px 0 14px 2px;"><b>1.0</b> = normal &nbsp;|&nbsp; <b>1.5</b> = +50% &nbsp;|&nbsp; <b>0.8</b> = -20%</label>
+                <button type="submit">Apply Rate</button>
+                <button type="button" class="close-modal" onclick="closeModal('exchangeRateModal')">Cancel</button>
             </form>
         </div>
     </div>
@@ -1136,6 +1318,19 @@
             document.getElementById('weeklyPaymentModal').classList.add('active');
         }
 
+        function openExchangeRateModal() {
+            document.getElementById('exchangeRateModal').classList.add('active');
+        }
+
+        function expandActiveStudentTab() {
+            const isPersonal = document.getElementById('personal-accounts').style.display !== 'none';
+            if (isPersonal) {
+                expandTable('personal-accounts', 'Personal Accounts');
+            } else {
+                expandTable('company-accounts', 'Company Accounts');
+            }
+        }
+
         function processWeeklyPayments() {
             if (confirm('Process weekly payments for all Personal accounts?')) {
                 const form = document.createElement('form');
@@ -1145,6 +1340,66 @@
                 form.submit();
             }
         }
+
+        // ── Resizable panes ───────────────────────────────────────────────
+        (function () {
+            const wrapper   = document.querySelector('.content-wrapper');
+            const paneTop   = document.getElementById('paneTop');
+            const paneBot   = document.getElementById('paneBottom');
+            const resizeH   = document.getElementById('resizeH');
+            const paneLeft  = document.getElementById('paneLeft');
+            const paneRight = document.getElementById('paneRight');
+            const resizeV   = document.getElementById('resizeV');
+
+            let draggingH = false, startYH, startTopH, totalH;
+            let draggingV = false, startXV, startLeftW, totalV;
+
+            resizeH.addEventListener('mousedown', function (e) {
+                e.preventDefault();
+                draggingH = true;
+                startYH   = e.clientY;
+                startTopH = paneTop.getBoundingClientRect().height;
+                totalH    = startTopH + paneBot.getBoundingClientRect().height;
+                resizeH.classList.add('active');
+                document.body.style.cursor     = 'ns-resize';
+                document.body.style.userSelect = 'none';
+            });
+
+            resizeV.addEventListener('mousedown', function (e) {
+                e.preventDefault();
+                draggingV  = true;
+                startXV    = e.clientX;
+                startLeftW = paneLeft.getBoundingClientRect().width;
+                totalV     = startLeftW + paneRight.getBoundingClientRect().width;
+                resizeV.classList.add('active');
+                document.body.style.cursor     = 'ew-resize';
+                document.body.style.userSelect = 'none';
+            });
+
+            document.addEventListener('mousemove', function (e) {
+                if (draggingH) {
+                    const newH = Math.max(80, Math.min(totalH - 80, startTopH + (e.clientY - startYH)));
+                    paneTop.style.flex = 'none';
+                    paneTop.style.height = newH + 'px';
+                    paneBot.style.flex = '1';
+                    paneBot.style.height = '';
+                }
+                if (draggingV) {
+                    const newW = Math.max(120, Math.min(totalV - 120, startLeftW + (e.clientX - startXV)));
+                    paneLeft.style.flex  = 'none';
+                    paneLeft.style.width = newW + 'px';
+                    paneRight.style.flex  = '1';
+                    paneRight.style.width = '';
+                }
+            });
+
+            document.addEventListener('mouseup', function () {
+                if (draggingH) { draggingH = false; resizeH.classList.remove('active'); }
+                if (draggingV) { draggingV = false; resizeV.classList.remove('active'); }
+                document.body.style.cursor     = '';
+                document.body.style.userSelect = '';
+            });
+        })();
 
         // Close modals when clicking outside
         document.querySelectorAll('.modal-bg').forEach(modal => {

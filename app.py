@@ -105,6 +105,64 @@ elif len(header) > 0:
 
 
 # ---------- HELPERS ----------
+def get_exchange_rate():
+    """Return the current time-era exchange rate multiplier (default 1.0)"""
+    data = get_federal_reserve_stats()
+    try:
+        return float(data.get("ExchangeRate") or 1.0)
+    except (ValueError, TypeError):
+        return 1.0
+
+
+def get_time_period():
+    """Return the current time-era label (default empty string)"""
+    data = get_federal_reserve_stats()
+    return data.get("TimePeriod") or ""
+
+
+def set_exchange_rate(rate, label=""):
+    """Persist exchange rate multiplier and time-era label to the Reserve sheet"""
+    set_fed_value("ExchangeRate", rate)
+    set_fed_value("TimePeriod", label)
+
+
+def get_personal_to_company_rate():
+    """Return the current personal-to-company currency conversion rate (default 1.0)"""
+    data = get_federal_reserve_stats()
+    try:
+        return float(data.get("PersonalToCompanyRate") or 1.0)
+    except (ValueError, TypeError):
+        return 1.0
+
+
+def set_personal_to_company_rate(rate):
+    """Persist the personal-to-company conversion rate to the Reserve sheet"""
+    set_fed_value("PersonalToCompanyRate", rate)
+
+
+def get_teacher_pin():
+    """Read the teacher PIN from the SystemConfig row in the Reserve sheet (column C).
+    Falls back to '4444' if not set."""
+    cache_key = "teacher_pin"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        def fetch():
+            r = sheet.worksheet("Reserve")
+            config_cell = r.find("SystemConfig", in_column=1)
+            if config_cell:
+                row = r.row_values(config_cell.row)
+                # Column C (index 2) = teacher_pin
+                return row[2] if len(row) > 2 and row[2] else "4444"
+            return "4444"
+        pin = retry_with_backoff(fetch)
+    except Exception:
+        pin = "4444"
+    cache.set(cache_key, pin)
+    return pin
+
+
 def get_interest_rate():
     """
     Calculate interest rate based on bank's available lending capacity.
@@ -450,7 +508,10 @@ def ensure_fed_sheet():
         "Cash",
         "Loaned",
         "Last Updated",
-        "ProjectEndDate"  # Date when all loans must be paid off (format: YYYY-MM-DD)
+        "ProjectEndDate",  # Date when all loans must be paid off (format: YYYY-MM-DD)
+        "TimePeriod",             # Current time era label (e.g. "Ancient Rome")
+        "ExchangeRate",           # Multiplier applied to base weekly payments (default 1.0)
+        "PersonalToCompanyRate"   # Exchange: 1 personal $ → N company $ (default 1.0)
     ]
 
     existing_headers = fed_sheet.row_values(1)
@@ -808,40 +869,103 @@ def process_loan_payments():
     return payments_processed
 
 def process_weekly_personal_payments():
-    """Process weekly payments for Personal accounts only (separate economy from Company accounts)"""
-    all_users = get_all_users()
-    payments_processed = 0
+    """Process weekly payments for Personal accounts only, scaled by the current exchange rate.
     
+    Uses batched writes to stay well within Google Sheets API rate limits:
+      - 1 call to read all user rows (for row indices)
+      - 1 batch_update call for all balance changes
+      - 1 append_rows call for all transaction records
+      - 1 append_rows call for all log entries
+    """
+    all_users = get_all_users()
+    exchange_rate = get_exchange_rate()
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    balance_updates   = []   # (username, new_balance)
+    transaction_rows  = []   # rows for Transactions sheet
+    log_rows          = []   # rows for Logs sheet
+
+    # ── Phase 1: collect all updates in memory (no API calls) ──────────────
     for user in all_users:
-        # Only process Personal accounts with Student role
         if user.get("AccountType") != "Personal" or user.get("Role") != "Student":
             continue
-        
+
         weekly_payment = user.get("WeeklyPayment", "")
         if not weekly_payment or weekly_payment == "":
             continue
-        
+
         try:
-            amount = float(weekly_payment)
-            if amount <= 0:
+            base_amount = float(weekly_payment)
+            if base_amount <= 0:
                 continue
-            
-            username = user.get("Username")
-            current_balance = float(user.get("Balance", 0))
-            new_balance = current_balance + amount
-            
-            # Update balance
-            update_balance(username, new_balance)
-            
-            # Add transaction
-            add_transaction("Weekly Payment", username, amount, "Automated weekly payment")
-            
-            payments_processed += 1
-            log_action("System", f"Automated weekly payment of ${amount} to {username} (Personal account)", amount, "Weekly Payment")
+
+            amount       = round(base_amount * exchange_rate, 2)
+            username     = user.get("Username")
+            new_balance  = round(float(user.get("Balance", 0)) + amount, 2)
+            note         = (f"Automated weekly payment "
+                            f"(base ${base_amount:.2f} × rate {exchange_rate:.4f})")
+
+            balance_updates.append((username, new_balance))
+            transaction_rows.append(["Weekly Payment", username, amount, now, note])
+            log_rows.append(["System",
+                             f"Automated weekly payment of ${amount} to {username} " + note,
+                             amount, "Weekly Payment", now])
         except (ValueError, TypeError) as e:
-            print(f"Error processing weekly payment for {user.get('Username', 'Unknown')}: {e}")
-            continue
-    
+            print(f"Error collecting weekly payment for "
+                  f"{user.get('Username', 'Unknown')}: {e}")
+
+    if not balance_updates:
+        return 0
+
+    payments_processed = len(balance_updates)
+
+    # ── Phase 2: batch-update all balances (2 API calls total) ─────────────
+    try:
+        def do_balance_batch():
+            all_rows = users_sheet.get_all_values()
+            # Build username → spreadsheet row number map (rows are 1-indexed)
+            username_to_row = {
+                row[0]: idx + 1
+                for idx, row in enumerate(all_rows)
+                if idx > 0 and len(row) > 0
+            }
+            cell_updates = []
+            for uname, new_bal in balance_updates:
+                row_num = username_to_row.get(uname)
+                if row_num:
+                    cell_updates.append({"range": f"C{row_num}", "values": [[new_bal]]})
+            if cell_updates:
+                users_sheet.batch_update(cell_updates)
+
+        retry_with_backoff(do_balance_batch)
+        cache.invalidate("all_users")
+        for uname, _ in balance_updates:
+            cache.invalidate(f"user_balance_{uname}", f"user_data_{uname}")
+    except Exception as e:
+        print(f"Error batch-updating balances during weekly payments: {e}")
+        payments_processed = 0   # nothing committed, report 0
+
+    # ── Phase 3: batch-append transactions (1 API call) ────────────────────
+    if transaction_rows:
+        try:
+            def append_transactions():
+                transactions_sheet.append_rows(transaction_rows,
+                                               value_input_option="USER_ENTERED")
+            retry_with_backoff(append_transactions)
+        except Exception as e:
+            print(f"Error batch-appending weekly-payment transactions: {e}")
+
+    # ── Phase 4: batch-append log entries (1 API call) ─────────────────────
+    if log_rows:
+        try:
+            def append_logs():
+                ls = sheet.worksheet("Logs")
+                ls.append_rows(log_rows, value_input_option="USER_ENTERED")
+            retry_with_backoff(append_logs)
+            cache.invalidate("logs")
+        except Exception as e:
+            print(f"Error batch-appending weekly-payment logs: {e}")
+
     return payments_processed
 
 def set_weekly_payment(username, amount):
@@ -1833,9 +1957,10 @@ def teacher_tools_login():
 
                 return redirect(url_for("teacher_tools"))
 
-        return render_template("teachertoolslogin.html", error="Invalid credentials")
+        return render_template("teachertoolslogin.html", error="Invalid credentials",
+                               teacher_pin=get_teacher_pin())
 
-    return render_template("teachertoolslogin.html")
+    return render_template("teachertoolslogin.html", teacher_pin=get_teacher_pin())
 
 @app.post("/freeze_account")
 @role_required("Teacher", "Banker")
@@ -2185,6 +2310,90 @@ def process_weekly_payments_route():
     except Exception as e:
         flash(f"Error processing weekly payments: {str(e)}", "error")
         return redirect(url_for("teacher_tools"))
+
+@app.route("/set_exchange_rate", methods=["POST"])
+@role_required("Teacher", "Banker")
+def set_exchange_rate_route():
+    """Set the time-era label and exchange rate multiplier"""
+    label = request.form.get("time_period", "").strip()
+    rate_str = request.form.get("exchange_rate", "1").strip()
+    try:
+        rate = float(rate_str)
+        if rate <= 0:
+            flash("Exchange rate must be greater than zero", "error")
+            return redirect(url_for("teacher_tools"))
+        set_exchange_rate(rate, label)
+        cache.invalidate("fed_stats")
+        era_display = f'"{label}" ' if label else ""
+        log_action(session["user"],
+                   f"Set time period {era_display}exchange rate to {rate:.4f}",
+                   rate, "Exchange Rate")
+        flash(f"Time period set to \"{label}\" with exchange rate {rate:.4f}x")
+    except ValueError:
+        flash("Invalid exchange rate", "error")
+    return redirect(url_for("teacher_tools"))
+
+
+@app.route("/convert_personal_to_company", methods=["POST"])
+@role_required("Banker")
+def convert_personal_to_company_route():
+    """Convert an amount from a personal account to a company account using the current rate."""
+    personal_username = request.form.get("personal_username", "").strip()
+    company_username = request.form.get("company_username", "").strip()
+    amount_str = request.form.get("amount", "0").strip()
+
+    if not personal_username or not company_username or not amount_str:
+        flash("All fields are required", "error")
+        return redirect(url_for("federal_reserve"))
+
+    try:
+        amount = float(amount_str)
+        if amount <= 0:
+            flash("Amount must be greater than zero", "error")
+            return redirect(url_for("federal_reserve"))
+    except ValueError:
+        flash("Invalid amount", "error")
+        return redirect(url_for("federal_reserve"))
+
+    all_users = get_all_users()
+    personal_user = next((u for u in all_users if u["Username"] == personal_username), None)
+    company_user  = next((u for u in all_users if u["Username"] == company_username), None)
+
+    if not personal_user:
+        flash(f"Personal account '{personal_username}' not found", "error")
+        return redirect(url_for("federal_reserve"))
+    if not company_user:
+        flash(f"Company account '{company_username}' not found", "error")
+        return redirect(url_for("federal_reserve"))
+    if personal_user.get("AccountType") != "Personal":
+        flash(f"'{personal_username}' is not a Personal account", "error")
+        return redirect(url_for("federal_reserve"))
+    if company_user.get("AccountType") != "Company":
+        flash(f"'{company_username}' is not a Company account", "error")
+        return redirect(url_for("federal_reserve"))
+
+    personal_balance = float(personal_user.get("Balance", 0))
+    if personal_balance < amount:
+        flash(f"Insufficient personal balance (${personal_balance:.2f} available)", "error")
+        return redirect(url_for("federal_reserve"))
+
+    rate = get_personal_to_company_rate()
+    company_received = round(amount * rate, 2)
+
+    # Deduct from personal, credit to company
+    update_balance(personal_username, personal_balance - amount)
+    company_balance = float(company_user.get("Balance", 0))
+    update_balance(company_username, company_balance + company_received)
+
+    note = (f"Currency conversion: ${amount:.2f} personal → ${company_received:.2f} company "
+            f"(rate {rate:.4f})")
+    add_transaction("Currency Conversion", personal_username, -amount, note)
+    add_transaction("Currency Conversion", company_username, company_received, note)
+    log_action(session["user"], note, amount, "Currency Conversion")
+
+    flash(f"Converted ${amount:.2f} from {personal_username} → ${company_received:.2f} deposited to {company_username} (rate {rate:.4f}x)")
+    return redirect(url_for("federal_reserve"))
+
 
 @app.route("/set_weekly_payment", methods=["POST"])
 @role_required("Teacher", "Banker")
@@ -2571,7 +2780,9 @@ def federal_reserve():
     # Get project timing info
     project_end_date = get_project_end_date()
     weeks_remaining = get_weeks_until_project_end()
-    
+    personal_to_company_rate = get_personal_to_company_rate()
+    teacher_pin = get_teacher_pin()
+
     return render_template("federalreserve.html", 
                          data=data, 
                          users=sanitized_users,
@@ -2584,7 +2795,9 @@ def federal_reserve():
                          logs=logs,
                          bank_account=bank_account,
                          project_end_date=project_end_date,
-                         weeks_remaining=weeks_remaining)
+                         weeks_remaining=weeks_remaining,
+                         personal_to_company_rate=personal_to_company_rate,
+                         teacher_pin=teacher_pin)
 
 @app.route("/repair_user_data")
 @role_required("Banker")
@@ -2833,6 +3046,18 @@ def save_system_setting():
             fed_sheet.update_cell(2, 1, value)  # Update A2 with the date
             cache.invalidate_pattern("federal")
             return jsonify({"success": True, "message": "Project end date updated"})
+
+        if setting_type == "currency_conversion_rate":
+            # Personal-to-company conversion rate stored directly in Reserve row 2
+            try:
+                rate = float(value)
+                if rate <= 0:
+                    return jsonify({"success": False, "message": "Rate must be greater than zero"})
+                set_personal_to_company_rate(rate)
+                cache.invalidate("fed_stats")
+                return jsonify({"success": True, "message": f"Personal→Company rate set to {rate:.4f}"})
+            except ValueError:
+                return jsonify({"success": False, "message": "Invalid rate value"})
         
         if setting_type not in column_map:
             return jsonify({"success": False, "message": "Invalid setting type"})
@@ -2844,6 +3069,8 @@ def save_system_setting():
         # Invalidate cache
         cache.invalidate_pattern("federal")
         cache.invalidate_pattern("system_config")
+        if setting_type == "teacher_pin":
+            cache.invalidate("teacher_pin")
         
         return jsonify({"success": True, "message": f"{setting_type} updated successfully"})
         
@@ -2997,6 +3224,9 @@ def teacher_tools():
     
     normalize_roles_column()
     
+    exchange_rate = get_exchange_rate()
+    time_period = get_time_period()
+
     return render_template(
         "teachertools.html",
         users=users,
@@ -3004,7 +3234,9 @@ def teacher_tools():
         company_students=company_students,
         teachers=teachers,
         username=username,
-        loans=loans  # Pass loans
+        loans=loans,
+        exchange_rate=exchange_rate,
+        time_period=time_period
     )
 
 @app.route("/adjust_money", methods=["POST"])
