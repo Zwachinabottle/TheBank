@@ -102,6 +102,14 @@
       color: var(--text-muted);
       font-size: 14px;
       margin-top: 30px;
+      overflow: hidden;
+      position: relative;
+    }
+    .ad-space.ad-loaded {
+      border: none;
+      background: transparent;
+      display: block;
+      padding: 0;
     }
 
     /* CENTER COLUMN */
@@ -436,6 +444,73 @@
       box-shadow: 0 8px 22px rgba(36,191,240,0.35);
     }
 
+    /* Promo Slideshow */
+    .promo-slideshow {
+      width: 80%;
+    }
+
+    .promo-slide {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      animation: fadeSlideUp 0.45s ease;
+    }
+
+    .promo-slide.active {
+      display: flex;
+    }
+
+    .promo-slide img {
+      width: 100%;
+      border-radius: var(--rounded);
+      object-fit: cover;
+    }
+
+    .promo-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-align: center;
+      margin: 4px 0 0;
+      line-height: 1.4;
+    }
+
+    .promo-dots {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      margin-top: 10px;
+    }
+
+    .promo-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    .promo-dot.active {
+      width: 22px;
+      border-radius: 4px;
+      background: var(--brand);
+    }
+
+    .promo-lottery-btn {
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      box-shadow: 0 4px 14px rgba(239,68,68,0.3);
+    }
+
+    .promo-lottery-btn:hover {
+      box-shadow: 0 8px 22px rgba(239,68,68,0.45);
+    }
+
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
     /* Theme Toggle */
     .theme-toggle-corner {
       position: fixed;
@@ -713,9 +788,7 @@
 
 <div class="side-banner-left">
   <img src="{{ url_for('static', filename='ahs_logo.png') }}" style="height:200px">
-  <div class="ad-space">
-    Ad Space
-  </div>
+  <div class="ad-space ad-player-container" data-page="account"></div>
 </div>
 
 <div class="center-column">
@@ -783,7 +856,7 @@
 </div>
 
 <div class="transaction-box">
-  <h2>Past Transactions</h2>
+  <h2>Past Transactions <span id="pending-badge" style="display:none;font-size:13px;font-weight:500;color:#f59e0b;background:rgba(245,158,11,0.12);padding:3px 10px;border-radius:20px;margin-left:8px;vertical-align:middle"></span></h2>
   <button class="expand-btn" onclick="expandTable('transaction-history-container', 'Past Transactions')">⛶ Expand Fullscreen</button>
   <div class="history-box" id="transaction-history-container">
     <table id="transaction-list">
@@ -806,7 +879,7 @@
         </td>
       </tr>
       {% else %}
-      <tr>
+      <tr data-placeholder>
         <td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">
           No transactions yet
         </td>
@@ -819,12 +892,32 @@
 </div>
 
 <div class="side-banner-right">
-  <img src="{{ url_for('static', filename='banner.png') }}" style="height:325px">
-  <button
-    class="right-loan-btn"
-    onclick="window.location.href='{{ url_for('loan') }}'">
-    Apply for a Loan
-  </button>
+  <div class="promo-slideshow" id="promoSlideshow">
+
+    <!-- Slide 1: Loan Ad -->
+    <div class="promo-slide active" id="promo-slide-0">
+      <img src="{{ url_for('static', filename='banner.png') }}" alt="Loan Ad" style="max-height:300px;">
+      <p class="promo-label">Need extra cash?<br>We&rsquo;ve got you covered.</p>
+      <button class="right-loan-btn" onclick="window.location.href='{{ url_for('loan') }}'">
+        Apply for a Loan
+      </button>
+    </div>
+
+    <!-- Slide 2: Lottery Banner -->
+    <div class="promo-slide" id="promo-slide-1">
+      <img src="/images/PiggyGold.png" alt="Lottery" style="max-height:300px;">
+      <p class="promo-label">Win the<br><strong>Community Involvement Prize!</strong></p>
+      <button class="right-loan-btn promo-lottery-btn" onclick="window.location.href='/lottery'">
+        🎰 Enter to Win!
+      </button>
+    </div>
+
+  </div>
+
+  <div class="promo-dots" id="promoDots">
+    <div class="promo-dot active" onclick="jumpPromo(0)"></div>
+    <div class="promo-dot" onclick="jumpPromo(1)"></div>
+  </div>
 </div>
 
 <!-- TRANSACTION MODAL -->
@@ -1234,69 +1327,100 @@ amountInput.addEventListener('input', function() {
 const transferForm = document.getElementById('transferForm');
 const transferSubmit = document.getElementById('transfer-submit');
 
+// ---- Pending transaction queue helpers ----
+let pendingCount = 0;
+
+function updatePendingBadge() {
+  const badge = document.getElementById('pending-badge');
+  if (!badge) return;
+  if (pendingCount > 0) {
+    badge.textContent = pendingCount === 1 ? '1 sending…' : `${pendingCount} sending…`;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function addPendingRow(id, receiver, amount) {
+  const list = document.getElementById('transaction-list');
+  if (!list) return;
+  // Remove empty-state placeholder so the table doesn't look odd
+  const placeholder = list.querySelector('[data-placeholder]');
+  if (placeholder) placeholder.remove();
+  const row = document.createElement('tr');
+  row.id = id;
+  row.style.cssText = 'opacity:0.55;transition:opacity 0.3s';
+  row.innerHTML = `
+    <td>
+      <b>Sending to ${receiver}…</b><br>
+      <span style="font-size:13px;color:var(--text-muted)">Just now</span>
+    </td>
+    <td style="text-align:right;font-weight:700;color:#f59e0b">
+      <span class="dollar">$</span>${amount.toFixed(2)}
+    </td>
+  `;
+  list.insertBefore(row, list.firstChild);
+}
+
+function removePendingRow(id) {
+  const row = document.getElementById(id);
+  if (row) row.remove();
+}
+// -------------------------------------------
+
 transferForm.addEventListener('submit', async function(e) {
   e.preventDefault();
-  
-  // Disable submit button
-  const originalText = transferSubmit.textContent;
-  transferSubmit.disabled = true;
-  transferSubmit.textContent = 'Sending...';
-  
+
+  // Capture values before resetting the form
+  const receiver = document.getElementById('receiver-input').value.trim();
+  const amount   = parseFloat(document.getElementById('amount-input').value);
   const formData = new FormData(this);
-  
+  const action   = this.action;
+
+  // Clear the form IMMEDIATELY — the user can start a new transaction straight away
+  this.reset();
+  usernameFeedback.textContent = '';
+  amountFeedback.textContent = '';
+
+  // Show a pending row so the user has visual feedback while the request is in-flight
+  pendingCount++;
+  updatePendingBadge();
+  const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  addPendingRow(pendingId, receiver, amount);
+
   try {
-    const response = await fetch(this.action, {
+    const response = await fetch(action, {
       method: 'POST',
-      headers: {
-        'X-Requested-With': 'XMLHttpRequest'
-      },
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
       body: formData
     });
-    
+
     const result = await response.json();
-    
+
     if (response.ok && result.success) {
-      // Success!
       showToast(result.message, 'success');
-      
-      // Update balance display
+
       if (result.new_balance !== undefined) {
         const balanceElement = document.getElementById('balance-amount');
         balanceElement.textContent = result.new_balance.toFixed(2);
-        
-        // Add a subtle animation
         balanceElement.style.transition = 'color 0.3s';
         balanceElement.style.color = '#22c55e';
-        setTimeout(() => {
-          balanceElement.style.color = '';
-        }, 1000);
+        setTimeout(() => { balanceElement.style.color = ''; }, 1000);
       }
-      
-      // Clear form
-      this.reset();
-      usernameFeedback.textContent = '';
-      amountFeedback.textContent = '';
-      
-      // Close modal after a short delay
-      setTimeout(() => {
-        closeTransaction();
-      }, 500);
-      
-      // Refresh transaction list without page reload
-      setTimeout(() => {
-        refreshTransactions();
-      }, 600);
+
+      removePendingRow(pendingId);
+      setTimeout(() => { refreshTransactions(); }, 600);
     } else {
-      // Error
       showToast(result.message || 'Transfer failed', 'error');
-      transferSubmit.disabled = false;
-      transferSubmit.textContent = originalText;
+      removePendingRow(pendingId);
     }
   } catch (error) {
     console.error('Transfer error:', error);
     showToast('Network error. Please try again.', 'error');
-    transferSubmit.disabled = false;
-    transferSubmit.textContent = originalText;
+    removePendingRow(pendingId);
+  } finally {
+    pendingCount--;
+    updatePendingBadge();
   }
 });
 
@@ -1398,6 +1522,122 @@ document.getElementById('fullscreenModal').addEventListener('click', (e) => {
   }
 });
 
+// ── Ad Player ────────────────────────────────────────────
+(function () {
+  function initAdPlayers() {
+    document.querySelectorAll('.ad-player-container').forEach(function (container) {
+      var page = container.dataset.page;
+      if (page) loadAds(container, page);
+    });
+  }
+
+  async function loadAds(container, page) {
+    var today = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+    try {
+      var resp = await fetch('/api/ads?page=' + encodeURIComponent(page));
+      if (!resp.ok) throw new Error();
+      var allAds = await resp.json();
+      var ads = allAds.filter(function (ad) {
+        var sched = (ad.Schedule || '').trim();
+        if (!sched) return true;
+        return sched.split(',').map(function(s){ return s.trim(); }).includes(today);
+      });
+      if (ads.length === 0) { renderFallback(container); return; }
+      container.classList.add('ad-loaded');
+      if (ads.length === 1) { renderStatic(container, ads[0]); }
+      else { renderSlideshow(container, ads); }
+    } catch (e) {
+      renderFallback(container);
+    }
+  }
+
+  function renderFallback(c) {
+    c.innerHTML = '<span style="color:var(--text-muted);font-size:14px;">Ad Space</span>';
+  }
+
+  function renderStatic(c, ad) {
+    c.innerHTML = adHTML(ad);
+  }
+
+  function renderSlideshow(c, ads) {
+    var interval = parseInt(ads[0].Interval || 5) * 1000;
+    var current = 0;
+    c.innerHTML = ads.map(function (ad, i) {
+      return '<div class="_ad-sl" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:' +
+        (i === 0 ? 1 : 0) + ';transition:opacity 0.6s ease;pointer-events:' +
+        (i === 0 ? 'auto' : 'none') + ';">' + adHTML(ad) + '</div>';
+    }).join('');
+
+    var dots = document.createElement('div');
+    dots.style.cssText = 'position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10;';
+    ads.forEach(function (_, i) {
+      var d = document.createElement('div');
+      d.style.cssText = 'width:' + (i===0?'20px':'8px') + ';height:8px;border-radius:4px;background:rgba(255,255,255,' + (i===0?'0.9':'0.4') + ');cursor:pointer;transition:.3s;';
+      d.onclick = function(){ jump(i); };
+      dots.appendChild(d);
+    });
+    c.appendChild(dots);
+
+    var slides = c.querySelectorAll('._ad-sl');
+    function jump(idx) {
+      slides[current].style.opacity = '0';
+      slides[current].style.pointerEvents = 'none';
+      dots.children[current].style.width = '8px';
+      dots.children[current].style.background = 'rgba(255,255,255,0.4)';
+      current = idx;
+      slides[current].style.opacity = '1';
+      slides[current].style.pointerEvents = 'auto';
+      dots.children[current].style.width = '20px';
+      dots.children[current].style.background = 'rgba(255,255,255,0.9)';
+    }
+    setInterval(function(){ jump((current + 1) % ads.length); }, interval);
+  }
+
+  function adHTML(ad) {
+    var img = '<img src="' + esc(ad.ImageURL) + '" alt="' + esc(ad.Title) +
+      '" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;"' +
+      ' onerror="this.parentElement.innerHTML=\' <span style=color:var\\(--text-muted\\)>Ad Space</span>\'">';
+    if (ad.LinkURL) return '<a href="' + esc(ad.LinkURL) + '" target="_blank" rel="noopener" style="display:block;width:100%;height:100%;">' + img + '</a>';
+    return img;
+  }
+
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAdPlayers);
+  else initAdPlayers();
+})();
+// ── End Ad Player ─────────────────────────────────────────
+
+</script>
+
+<script>
+// ── Promo Slideshow ───────────────────────────────────────
+(function () {
+  var current = 0;
+  var total = document.querySelectorAll('#promoSlideshow .promo-slide').length;
+  var intervalMs = 4500;
+
+  function jumpPromo(idx) {
+    var slides = document.querySelectorAll('#promoSlideshow .promo-slide');
+    var dots   = document.querySelectorAll('#promoDots .promo-dot');
+    if (!slides.length) return;
+    slides[current].classList.remove('active');
+    dots[current].classList.remove('active');
+    current = idx;
+    slides[current].classList.add('active');
+    dots[current].classList.add('active');
+  }
+
+  // expose so inline onclick can reach it
+  window.jumpPromo = jumpPromo;
+
+  setInterval(function () {
+    jumpPromo((current + 1) % total);
+  }, intervalMs);
+})();
+// ── End Promo Slideshow ───────────────────────────────────
 </script>
 
 </body>

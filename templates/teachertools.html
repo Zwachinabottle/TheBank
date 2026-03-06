@@ -64,6 +64,27 @@
             color: var(--text-muted);
         }
 
+        .ad-slot-banner {
+            width: 90%;
+            height: 75vh;
+            border-radius: calc(var(--rounded) - 4px);
+            overflow: hidden;
+            position: relative;
+            background: var(--bg3);
+            border: 2px dashed var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 12px;
+            text-align: center;
+        }
+        .ad-slot-banner.ad-loaded {
+            border: none;
+            background: transparent;
+            display: block;
+        }
+
         .center-column {
             flex: 5;
             max-width: 1400px;
@@ -894,7 +915,9 @@
     </div>
 
     <!-- Left Banner -->
-    <div class="side-banner">Banner</div>
+    <div class="side-banner">
+        <div class="ad-slot-banner ad-player-container" data-page="teacher"></div>
+    </div>
 
     <!-- Main Content -->
     <div class="center-column">
@@ -1075,7 +1098,9 @@
     </div>
 
     <!-- Right Banner -->
-    <div class="side-banner">Banner</div>
+    <div class="side-banner">
+        <div class="ad-slot-banner ad-player-container" data-page="teacher"></div>
+    </div>
 
     <!-- Federal Reserve (fixed center-bottom) -->
     <div class="bottom-center-btn">
@@ -1508,6 +1533,93 @@
                 closeFullscreen();
             }
         });
+
+    // ── Ad Player ────────────────────────────────────────────
+    (function () {
+        function initAdPlayers() {
+            document.querySelectorAll('.ad-player-container').forEach(function (container) {
+                var page = container.dataset.page;
+                if (page) loadAds(container, page);
+            });
+        }
+
+        async function loadAds(container, page) {
+            var today = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+            try {
+                var resp = await fetch('/api/ads?page=' + encodeURIComponent(page));
+                if (!resp.ok) throw new Error();
+                var allAds = await resp.json();
+                var ads = allAds.filter(function (ad) {
+                    var sched = (ad.Schedule || '').trim();
+                    if (!sched) return true;
+                    return sched.split(',').map(function(s){ return s.trim(); }).includes(today);
+                });
+                if (ads.length === 0) { renderFallback(container); return; }
+                container.classList.add('ad-loaded');
+                if (ads.length === 1) { renderStatic(container, ads[0]); }
+                else { renderSlideshow(container, ads); }
+            } catch (e) {
+                renderFallback(container);
+            }
+        }
+
+        function renderFallback(c) {
+            c.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">Ad Space</span>';
+        }
+
+        function renderStatic(c, ad) {
+            c.innerHTML = adHTML(ad);
+        }
+
+        function renderSlideshow(c, ads) {
+            var interval = parseInt(ads[0].Interval || 5) * 1000;
+            var current = 0;
+            c.innerHTML = ads.map(function (ad, i) {
+                return '<div class="_ad-sl" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:' +
+                    (i === 0 ? 1 : 0) + ';transition:opacity 0.6s ease;pointer-events:' +
+                    (i === 0 ? 'auto' : 'none') + ';">' + adHTML(ad) + '</div>';
+            }).join('');
+
+            var dots = document.createElement('div');
+            dots.style.cssText = 'position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:10;';
+            ads.forEach(function (_, i) {
+                var d = document.createElement('div');
+                d.style.cssText = 'width:' + (i===0?'16px':'6px') + ';height:6px;border-radius:3px;background:rgba(255,255,255,' + (i===0?'0.9':'0.4') + ');cursor:pointer;transition:.3s;';
+                d.onclick = function(){ jump(i); };
+                dots.appendChild(d);
+            });
+            c.appendChild(dots);
+
+            var slides = c.querySelectorAll('._ad-sl');
+            function jump(idx) {
+                slides[current].style.opacity = '0';
+                slides[current].style.pointerEvents = 'none';
+                dots.children[current].style.width = '6px';
+                dots.children[current].style.background = 'rgba(255,255,255,0.4)';
+                current = idx;
+                slides[current].style.opacity = '1';
+                slides[current].style.pointerEvents = 'auto';
+                dots.children[current].style.width = '16px';
+                dots.children[current].style.background = 'rgba(255,255,255,0.9)';
+            }
+            setInterval(function(){ jump((current + 1) % ads.length); }, interval);
+        }
+
+        function adHTML(ad) {
+            var img = '<img src="' + esc(ad.ImageURL) + '" alt="' + esc(ad.Title) +
+                '" style="width:100%;height:100%;object-fit:cover;display:block;" onerror="this.parentElement.innerHTML=\' <span style=\"color:var(--text-muted);font-size:12px;\">Ad Space</span>\'">';
+            if (ad.LinkURL) return '<a href="' + esc(ad.LinkURL) + '" target="_blank" rel="noopener" style="display:block;width:100%;height:100%;">' + img + '</a>';
+            return img;
+        }
+
+        function esc(s) {
+            return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAdPlayers);
+        else initAdPlayers();
+    })();
+    // ── End Ad Player ───────────────────────────────────────
     </script>
 </body>
 </html>

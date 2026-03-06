@@ -1294,6 +1294,78 @@
         opacity: 0;
       }
     }
+
+    /* ── Ad Manager ──────────────────────────────── */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--border);
+      border-radius: 24px;
+      transition: 0.25s;
+    }
+    .toggle-slider::before {
+      content: "";
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: 0.25s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: var(--brand); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+    .ad-manager-table { width: 100%; border-collapse: collapse; }
+    .ad-manager-table th {
+      background: var(--bg2);
+      padding: 10px 8px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      border-bottom: 2px solid var(--border);
+      position: sticky;
+      top: -1px;
+      z-index: 5;
+    }
+    .ad-manager-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      vertical-align: middle;
+    }
+    .ad-manager-table tr:last-child td { border-bottom: none; }
+    .ad-manager-table tr:hover { background: var(--bg2); }
+    .ad-preview-thumb {
+      height: 44px;
+      width: 72px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      display: block;
+    }
+    .page-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 20px;
+      font-size: 11px;
+      background: rgba(36,191,240,0.12);
+      color: var(--brand);
+      margin: 1px;
+    }
   </style>
 </head>
 
@@ -1947,6 +2019,74 @@
           </div>
         </div>
       </section>
+
+      <!-- SLIDE 9: Ad Manager -->
+      <section class="slide">
+        <h2>📢 Ad Manager</h2>
+        <div class="utility-section">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+            <p style="color:var(--text-muted);margin:0;font-size:13px;">Manage banners shown across Account, Loan, and Teacher pages. Higher priority ads display first in rotation.</p>
+            <button onclick="openAdModal()" class="approve-btn" style="padding:10px 18px;font-size:14px;font-weight:600;">+ New Ad</button>
+          </div>
+
+          <div class="utility-box" style="padding:0;overflow:hidden;">
+            <table class="ad-manager-table" id="ads-manager-table">
+              <thead>
+                <tr>
+                  <th style="width:32px;">#</th>
+                  <th>Title</th>
+                  <th>Preview</th>
+                  <th>Pages</th>
+                  <th>Schedule</th>
+                  <th style="width:60px;">Priority</th>
+                  <th style="width:60px;">Interval</th>
+                  <th style="width:60px;">Active</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="ads-tbody">
+                {% for ad in all_ads %}
+                <tr id="ad-row-{{ ad.ID }}">
+                  <td style="color:var(--text-muted);">{{ ad.ID }}</td>
+                  <td><strong>{{ ad.Title }}</strong></td>
+                  <td>
+                    {% if ad.ImageURL %}
+                    <img src="{{ ad.ImageURL }}" class="ad-preview-thumb" alt="" onerror="this.style.display='none'">
+                    {% else %}
+                    <span style="color:var(--text-muted);font-size:12px;">No image</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% for p in (ad.Pages or 'all').split(',') %}
+                    <span class="page-badge">{{ p.strip() }}</span>
+                    {% endfor %}
+                  </td>
+                  <td style="color:var(--text-muted);">{{ ad.Schedule if ad.Schedule else 'Every day' }}</td>
+                  <td style="text-align:center;">{{ ad.Priority }}</td>
+                  <td style="text-align:center;">{{ ad.Interval }}s</td>
+                  <td style="text-align:center;">
+                    <label class="toggle-switch">
+                      <input type="checkbox" {% if ad.Active|string|upper == 'TRUE' %}checked{% endif %} onchange="toggleAd({{ ad.ID }}, this)">
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </td>
+                  <td style="text-align:right;">
+                    <button class="approve-btn" onclick="openAdModal({{ ad.ID }})">Edit</button>
+                    <button class="deny-btn" onclick="deleteAd({{ ad.ID }})">Delete</button>
+                  </td>
+                </tr>
+                {% else %}
+                <tr id="ads-empty-row">
+                  <td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px;">
+                    No ads yet. Click "+ New Ad" to create your first advertisement.
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
 
     <!-- Dots Navigation -->
@@ -1959,6 +2099,7 @@
       <span class="dot" onclick="goToSlide(5)"></span>
       <span class="dot" onclick="goToSlide(6)"></span>
       <span class="dot" onclick="goToSlide(7)"></span>
+      <span class="dot" onclick="goToSlide(8)"></span>
     </div>
   </div>
 
@@ -1998,6 +2139,80 @@
       </div>
 
       <button class="close-modal" onclick="closeAccountModal()">Close</button>
+    </div>
+  </div>
+
+  <!-- Ad Manager Modal -->
+  <div id="adModal" class="modal-bg">
+    <div class="modal-box" style="max-width:520px;">
+      <h3 id="adModalTitle">New Ad</h3>
+      <div class="modal-content">
+        <div style="display:flex;flex-direction:column;gap:16px;">
+
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.05em;">Title *</label>
+            <input id="ad-title" type="text" class="setting-input" style="width:100%;margin-top:6px;" placeholder="e.g. School Store Sale">
+          </div>
+
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.05em;">Image URL *</label>
+            <input id="ad-image-url" type="text" class="setting-input" style="width:100%;margin-top:6px;" placeholder="https://...">
+            <div id="ad-image-preview" style="margin-top:8px;display:none;">
+              <img id="ad-preview-img" style="height:80px;border-radius:8px;object-fit:cover;border:1px solid var(--border);">
+            </div>
+          </div>
+
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.05em;">Link URL (optional)</label>
+            <input id="ad-link-url" type="text" class="setting-input" style="width:100%;margin-top:6px;" placeholder="https://...">
+          </div>
+
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.05em;display:block;margin-bottom:8px;">Show On Pages</label>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ad-page-all" onchange="handleAllPages(this)"> All Pages</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ad-page-account"> Account</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ad-page-loan"> Loan</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ad-page-teacher"> Teacher</label>
+            </div>
+          </div>
+
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.05em;display:block;margin-bottom:8px;">Schedule <span style="font-weight:400;text-transform:none;">(all unchecked = every day)</span></label>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ad-sch-mon"> Mon</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ad-sch-tue"> Tue</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ad-sch-wed"> Wed</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ad-sch-thu"> Thu</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ad-sch-fri"> Fri</label>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:14px;">
+            <div style="flex:1;">
+              <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.05em;">Priority</label>
+              <input id="ad-priority" type="number" min="1" max="100" value="1" class="setting-input" style="width:100%;margin-top:6px;">
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Higher = shown first</div>
+            </div>
+            <div style="flex:1;">
+              <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.05em;">Slideshow Interval (sec)</label>
+              <input id="ad-interval" type="number" min="2" max="60" value="5" class="setting-input" style="width:100%;margin-top:6px;">
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px;">
+            <label class="toggle-switch">
+              <input type="checkbox" id="ad-active" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <span style="font-size:14px;">Active</span>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:20px;">
+        <button onclick="saveAd()" class="close-modal" style="flex:1;">Save Ad</button>
+        <button onclick="closeAdModal()" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-weight:bold;cursor:pointer;padding:12px;transition:.2s;">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -2506,6 +2721,193 @@
       });
     }
     
+    // ── Ad Manager ────────────────────────────────────────────────
+    const ALL_ADS_DATA = {{ all_ads | tojson }};
+    let editingAdId = null;
+
+    function openAdModal(id = null) {
+      editingAdId = id || null;
+      document.getElementById('adModalTitle').textContent = id ? 'Edit Ad' : 'New Ad';
+
+      // Reset all fields
+      document.getElementById('ad-title').value = '';
+      document.getElementById('ad-image-url').value = '';
+      document.getElementById('ad-link-url').value = '';
+      document.getElementById('ad-priority').value = 1;
+      document.getElementById('ad-interval').value = 5;
+      document.getElementById('ad-active').checked = true;
+      document.getElementById('ad-image-preview').style.display = 'none';
+      ['all', 'account', 'loan', 'teacher'].forEach(p => {
+        const el = document.getElementById('ad-page-' + p);
+        if (el) { el.checked = false; el.disabled = false; }
+      });
+      ['mon', 'tue', 'wed', 'thu', 'fri'].forEach(d => {
+        const el = document.getElementById('ad-sch-' + d);
+        if (el) el.checked = false;
+      });
+
+      if (id) {
+        const ad = ALL_ADS_DATA.find(a => String(a.ID) === String(id));
+        if (ad) {
+          document.getElementById('ad-title').value = ad.Title || '';
+          document.getElementById('ad-image-url').value = ad.ImageURL || '';
+          document.getElementById('ad-link-url').value = ad.LinkURL || '';
+          document.getElementById('ad-priority').value = ad.Priority || 1;
+          document.getElementById('ad-interval').value = ad.Interval || 5;
+          document.getElementById('ad-active').checked = String(ad.Active).toUpperCase() === 'TRUE';
+
+          // Pages
+          const pages = (ad.Pages || '').toLowerCase();
+          if (pages.includes('all')) {
+            document.getElementById('ad-page-all').checked = true;
+            handleAllPages(document.getElementById('ad-page-all'));
+          } else {
+            ['account', 'loan', 'teacher'].forEach(p => {
+              if (pages.includes(p)) document.getElementById('ad-page-' + p).checked = true;
+            });
+          }
+
+          // Schedule
+          const sched = (ad.Schedule || '').toLowerCase();
+          ['mon', 'tue', 'wed', 'thu', 'fri'].forEach(d => {
+            if (sched.includes(d)) document.getElementById('ad-sch-' + d).checked = true;
+          });
+
+          // Image preview
+          if (ad.ImageURL) {
+            document.getElementById('ad-preview-img').src = ad.ImageURL;
+            document.getElementById('ad-image-preview').style.display = 'block';
+          }
+        }
+      }
+
+      document.getElementById('adModal').classList.add('active');
+    }
+
+    function closeAdModal() {
+      document.getElementById('adModal').classList.remove('active');
+      editingAdId = null;
+    }
+
+    function handleAllPages(cb) {
+      ['account', 'loan', 'teacher'].forEach(p => {
+        const el = document.getElementById('ad-page-' + p);
+        if (el) { el.checked = false; el.disabled = cb.checked; }
+      });
+    }
+
+    // Live image URL preview
+    document.addEventListener('DOMContentLoaded', () => {
+      const imgInput = document.getElementById('ad-image-url');
+      if (imgInput) {
+        imgInput.addEventListener('input', function() {
+          const url = this.value.trim();
+          const preview = document.getElementById('ad-image-preview');
+          const img = document.getElementById('ad-preview-img');
+          if (url) { img.src = url; preview.style.display = 'block'; }
+          else { preview.style.display = 'none'; }
+        });
+      }
+    });
+
+    async function saveAd() {
+      const title = document.getElementById('ad-title').value.trim();
+      const imageUrl = document.getElementById('ad-image-url').value.trim();
+      if (!title || !imageUrl) {
+        showToast('Title and Image URL are required', 'error');
+        return;
+      }
+
+      // Collect pages
+      let pages;
+      if (document.getElementById('ad-page-all').checked) {
+        pages = 'all';
+      } else {
+        const sel = ['account', 'loan', 'teacher'].filter(p => document.getElementById('ad-page-' + p).checked);
+        pages = sel.length ? sel.join(',') : 'all';
+      }
+
+      // Collect schedule
+      const schedDays = [
+        { id: 'ad-sch-mon', label: 'Mon' },
+        { id: 'ad-sch-tue', label: 'Tue' },
+        { id: 'ad-sch-wed', label: 'Wed' },
+        { id: 'ad-sch-thu', label: 'Thu' },
+        { id: 'ad-sch-fri', label: 'Fri' }
+      ].filter(d => document.getElementById(d.id).checked).map(d => d.label);
+
+      const payload = {
+        title,
+        image_url: imageUrl,
+        link_url: document.getElementById('ad-link-url').value.trim(),
+        pages,
+        schedule: schedDays.join(','),
+        priority: parseInt(document.getElementById('ad-priority').value) || 1,
+        interval: parseInt(document.getElementById('ad-interval').value) || 5,
+        active: document.getElementById('ad-active').checked
+      };
+
+      const url = editingAdId ? `/ads/update/${editingAdId}` : '/ads/add';
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await resp.json();
+        if (result.success) {
+          showToast(editingAdId ? 'Ad updated!' : 'Ad created!', 'success');
+          closeAdModal();
+          setTimeout(() => location.reload(), 900);
+        } else {
+          showToast('Error: ' + (result.error || 'Unknown'), 'error');
+        }
+      } catch(e) {
+        showToast('Network error', 'error');
+      }
+    }
+
+    async function deleteAd(id) {
+      if (!confirm('Delete this ad? This cannot be undone.')) return;
+      try {
+        const resp = await fetch(`/ads/delete/${id}`, { method: 'POST' });
+        const result = await resp.json();
+        if (result.success) {
+          showToast('Ad deleted', 'success');
+          const row = document.getElementById('ad-row-' + id);
+          if (row) row.remove();
+          const tbody = document.getElementById('ads-tbody');
+          if (tbody && tbody.querySelectorAll('tr:not([id="ads-empty-row"])').length === 0) {
+            tbody.innerHTML = '<tr id="ads-empty-row"><td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px;">No ads yet. Click "+ New Ad" to create your first advertisement.</td></tr>';
+          }
+        } else {
+          showToast('Error: ' + (result.error || 'Unknown'), 'error');
+        }
+      } catch(e) {
+        showToast('Network error', 'error');
+      }
+    }
+
+    async function toggleAd(id, checkbox) {
+      try {
+        const resp = await fetch(`/ads/toggle/${id}`, { method: 'POST' });
+        const result = await resp.json();
+        if (!result.success) {
+          checkbox.checked = !checkbox.checked;
+          showToast('Error toggling ad', 'error');
+        }
+      } catch(e) {
+        checkbox.checked = !checkbox.checked;
+        showToast('Network error', 'error');
+      }
+    }
+
+    // Close ad modal on background click
+    document.getElementById('adModal').addEventListener('click', function(e) {
+      if (e.target === this) closeAdModal();
+    });
+    // ── End Ad Manager ────────────────────────────────────────────
+
     // Attach AJAX handlers to all forms in banker utilities
     document.addEventListener('DOMContentLoaded', () => {
       const forms = document.querySelectorAll(

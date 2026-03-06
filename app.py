@@ -54,8 +54,19 @@ class SheetCache:
             for key in keys_to_delete:
                 del self.cache[key]
 
-# Global cache instance
-cache = SheetCache(ttl=45)
+# Global cache instance (30s TTL — balanced freshness vs API quota)
+cache = SheetCache(ttl=30)
+
+# Per-user transfer locks — prevent double-spend race conditions on concurrent requests
+_transfer_locks: dict = {}
+_transfer_locks_meta = Lock()
+
+def get_transfer_lock(username: str):
+    """Get or create a per-user Lock for transfer operations."""
+    with _transfer_locks_meta:
+        if username not in _transfer_locks:
+            _transfer_locks[username] = Lock()
+        return _transfer_locks[username]
 
 def retry_with_backoff(func, max_retries=3, initial_delay=1):
     """Exponential backoff retry for 429 errors"""
@@ -86,19 +97,47 @@ transactions_sheet = sheet.worksheet("Transactions")
 fed_sheet = sheet.worksheet("Reserve")
 loans_sheet = sheet.worksheet("Loans")
 
+# Pre-load the Logs worksheet once at startup so log_action never pays the
+# cost of a runtime sheet.worksheet() API lookup on every teacher action.
+try:
+    logs_sheet = sheet.worksheet("Logs")
+except Exception:
+    logs_sheet = sheet.add_worksheet("Logs", rows=1000, cols=5)
+
+# Pre-load the CashBurns worksheet once at startup for the same reason.
+try:
+    cashburns_sheet = sheet.worksheet("CashBurns")
+except Exception:
+    cashburns_sheet = sheet.add_worksheet("CashBurns", rows=1000, cols=5)
+
+# Pre-load the Ads worksheet for the ad management system.
+try:
+    ads_sheet = sheet.worksheet("Ads")
+except Exception:
+    ads_sheet = sheet.add_worksheet("Ads", rows=1000, cols=9)
+    ads_sheet.update([["ID", "Title", "ImageURL", "LinkURL", "Pages", "Schedule", "Priority", "Interval", "Active"]], 'A1:I1')
+
 # Ensure Transactions sheet has a proper header row
 trans_required_headers = ["Sender", "Receiver", "Amount", "Date", "Comment"]
 trans_header = transactions_sheet.row_values(1)
 if not trans_header or trans_header[0] != "Sender":
     if not trans_header:
         # Sheet is empty — write headers to row 1
-        transactions_sheet.update('A1:E1', [trans_required_headers])
+        transactions_sheet.update([trans_required_headers], 'A1:E1')
     else:
         # Sheet has data rows but no header — insert header row at the top
         transactions_sheet.insert_row(trans_required_headers, 1)
 
+# ---------- STATIC COLUMN-INDEX MAPS (computed once, no extra API calls) ----------
+# These map column name → 1-based column number and never change during a session.
+_users_header = users_sheet.row_values(1)
+_USERS_COLS: dict = {name: idx + 1 for idx, name in enumerate(_users_header)}
+
+_loans_header = loans_sheet.row_values(1) if loans_sheet else []
+_LOANS_HEADERS: list = _loans_header  # used as expected_headers in get_all_records
+
 # Ensure sheet has required columns (but never delete existing headers!)
-header = users_sheet.row_values(1)
+header = _users_header
 
 required_headers = ["Username", "Password", "Balance", "Frozen", "Role", "Email", "AccountType", "CardNumber", "PIN", "WeeklyPayment"]
 
@@ -329,8 +368,7 @@ def get_user_transactions(username):
 
     def fetch_logs():
         try:
-            logs = sheet.worksheet("Logs")
-            return logs.get_all_records()
+            return logs_sheet.get_all_records()
         except Exception:
             return []
 
@@ -397,44 +435,50 @@ def get_user_transactions(username):
 
 
 def transfer_money(sender, receiver, amount, comment):
-    """Transfer money between accounts with optimized API calls"""
-    # Use cached user data to avoid multiple finds
-    all_users = get_all_users()
-    sender_user = next((u for u in all_users if u["Username"] == sender), None)
-    receiver_user = next((u for u in all_users if u["Username"] == receiver), None)
+    """Transfer money between accounts with concurrent request safety.
     
-    if not sender_user:
-        return "sender_not_found"
-    
-    if not receiver_user:
-        return "receiver_not_found"
-    
-    sender_balance = float(sender_user["Balance"])
-    receiver_balance = float(receiver_user["Balance"])
+    A per-sender Lock ensures that two simultaneous requests from the same
+    user cannot both pass the balance check and both deduct funds (double-spend).
+    The cache is invalidated inside the lock so the balance read is always fresh.
+    """
+    with get_transfer_lock(sender):
+        # Invalidate inside the lock so we read the latest balance, not a stale one
+        cache.invalidate("all_users", f"user_balance_{sender}", f"user_data_{sender}")
+        all_users = get_all_users()
 
-    if sender_balance < amount:
-        return "insufficient_balance"
+        sender_user = next((u for u in all_users if u["Username"] == sender), None)
+        receiver_user = next((u for u in all_users if u["Username"] == receiver), None)
 
-    # Find cells and update (unavoidable API calls, but batched)
-    def batch_update():
-        sender_cell = users_sheet.find(sender)
-        receiver_cell = users_sheet.find(receiver)
-        users_sheet.update_cell(sender_cell.row, 3, sender_balance - amount)
-        users_sheet.update_cell(receiver_cell.row, 3, receiver_balance + amount)
-    
-    retry_with_backoff(batch_update)
-    add_transaction(sender, receiver, amount, comment)
-    
-    # Invalidate relevant caches
-    cache.invalidate(
-        "all_users",
-        f"user_balance_{sender}",
-        f"user_balance_{receiver}",
-        f"user_data_{sender}",
-        f"user_data_{receiver}"
-    )
-    
-    return "success"
+        if not sender_user:
+            return "sender_not_found"
+
+        if not receiver_user:
+            return "receiver_not_found"
+
+        sender_balance = float(sender_user["Balance"] or 0)
+        receiver_balance = float(receiver_user["Balance"] or 0)
+
+        if sender_balance < amount:
+            return "insufficient_balance"
+
+        def batch_update():
+            sender_cell = users_sheet.find(sender)
+            receiver_cell = users_sheet.find(receiver)
+            users_sheet.update_cell(sender_cell.row, 3, sender_balance - amount)
+            users_sheet.update_cell(receiver_cell.row, 3, receiver_balance + amount)
+
+        retry_with_backoff(batch_update)
+        add_transaction(sender, receiver, amount, comment)
+
+        cache.invalidate(
+            "all_users",
+            f"user_balance_{sender}",
+            f"user_balance_{receiver}",
+            f"user_data_{sender}",
+            f"user_data_{receiver}"
+        )
+
+        return "success"
 
 def role_required(*roles):
     def decorator(f):
@@ -449,10 +493,9 @@ def role_required(*roles):
 
 def freeze_account(username):
     """Freeze account and invalidate cache"""
+    frozen_col = _USERS_COLS.get("Frozen", 4)  # column pre-computed at startup
     def update():
         cell = users_sheet.find(username)
-        header = users_sheet.row_values(1)
-        frozen_col = header.index("Frozen") + 1
         users_sheet.update_cell(cell.row, frozen_col, "Yes")
     
     retry_with_backoff(update)
@@ -460,10 +503,9 @@ def freeze_account(username):
 
 def unfreeze_account(username):
     """Unfreeze account and invalidate cache"""
+    frozen_col = _USERS_COLS.get("Frozen", 4)  # column pre-computed at startup
     def update():
         cell = users_sheet.find(username)
-        header = users_sheet.row_values(1)
-        frozen_col = header.index("Frozen") + 1
         users_sheet.update_cell(cell.row, frozen_col, "No")
     
     retry_with_backoff(update)
@@ -612,12 +654,12 @@ def ensure_logs_sheet():
     
     # If header row is empty, write full header
     if not existing_headers or existing_headers == ['', '', '', '', '']:
-        logs_sheet.update('A1:E1', [required_headers])
+        logs_sheet.update([required_headers], 'A1:E1')
         return
     
     # Fix headers if they exist but are wrong
     if existing_headers[:5] != required_headers:
-        logs_sheet.update('A1:E1', [required_headers])
+        logs_sheet.update([required_headers], 'A1:E1')
 
 def ensure_deletions_sheet():
     """Ensure Deletions sheet exists with proper headers"""
@@ -630,7 +672,7 @@ def ensure_deletions_sheet():
     existing_headers = deletions_sheet.row_values(1)
 
     if not existing_headers or existing_headers == ['', '', '', '', '']:
-        deletions_sheet.update('A1:E1', [required_headers])
+        deletions_sheet.update([required_headers], 'A1:E1')
 
 ensure_fed_sheet()
 ensure_logs_sheet()
@@ -749,7 +791,6 @@ def recalculate_federal_reserve():
     
     try:
         def fetch_cashburns():
-            cashburns_sheet = sheet.worksheet("CashBurns")
             return cashburns_sheet.get_all_records()
         
         cashburns = retry_with_backoff(fetch_cashburns)
@@ -1036,8 +1077,7 @@ def process_weekly_personal_payments():
     if log_rows:
         try:
             def append_logs():
-                ls = sheet.worksheet("Logs")
-                ls.append_rows(log_rows, value_input_option="USER_ENTERED")
+                logs_sheet.append_rows(log_rows, value_input_option="USER_ENTERED")
             retry_with_backoff(append_logs)
             cache.invalidate("logs")
         except Exception as e:
@@ -1047,10 +1087,9 @@ def process_weekly_personal_payments():
 
 def set_weekly_payment(username, amount):
     """Set weekly payment amount for a Personal account"""
+    payment_col = _USERS_COLS.get("WeeklyPayment", 10)  # column pre-computed at startup
     def update():
         cell = users_sheet.find(username)
-        header = users_sheet.row_values(1)
-        payment_col = header.index("WeeklyPayment") + 1
         users_sheet.update_cell(cell.row, payment_col, amount)
     
     retry_with_backoff(update)
@@ -1205,7 +1244,6 @@ def get_pending_cash_burns():
     
     try:
         def fetch():
-            cashburns_sheet = sheet.worksheet("CashBurns")
             return cashburns_sheet.get_all_records()
         
         rows = retry_with_backoff(fetch)
@@ -1264,7 +1302,8 @@ def get_pending_role_change_requests():
     try:
         def fetch():
             role_requests_sheet = sheet.worksheet("RoleChangeRequests")
-            return role_requests_sheet.get_all_records(expected_headers=role_requests_sheet.row_values(1))
+            # get_all_records uses the sheet's own header row by default — no extra row_values(1) needed
+            return role_requests_sheet.get_all_records()
         
         rows = retry_with_backoff(fetch)
         pending = []
@@ -1291,7 +1330,9 @@ def get_pending_loans():
         return cached
     
     def fetch():
-        return loans_sheet.get_all_records(expected_headers=loans_sheet.row_values(1))
+        # Use the pre-computed header — avoids a redundant row_values(1) API call
+        hdrs = _LOANS_HEADERS if _LOANS_HEADERS else None
+        return loans_sheet.get_all_records(expected_headers=hdrs) if hdrs else loans_sheet.get_all_records()
     
     rows = retry_with_backoff(fetch)
     pending = []
@@ -1355,12 +1396,11 @@ def deny_deletion(deletion_row_index):
 def approve_cash_burn(burn_row_index):
     """Approve cash burn and remove money"""
     def get_burn():
-        cashburns_sheet = sheet.worksheet("CashBurns")
         header = cashburns_sheet.row_values(1)
         burn = cashburns_sheet.row_values(burn_row_index)
-        return cashburns_sheet, header, burn
+        return header, burn
     
-    cashburns_sheet, header, burn = retry_with_backoff(get_burn)
+    header, burn = retry_with_backoff(get_burn)
     col_index = {name: idx + 1 for idx, name in enumerate(header)}
     
     requester = burn[col_index["Requester"] - 1]
@@ -1386,7 +1426,6 @@ def approve_cash_burn(burn_row_index):
 def deny_cash_burn(burn_row_index):
     """Deny cash burn request"""
     def get_and_update():
-        cashburns_sheet = sheet.worksheet("CashBurns")
         header = cashburns_sheet.row_values(1)
         col_index = {name: idx + 1 for idx, name in enumerate(header)}
         cashburns_sheet.update_cell(burn_row_index, col_index["Status"], "Denied")
@@ -1470,7 +1509,9 @@ def get_all_loans():
         return cached
     
     def fetch():
-        return loans_sheet.get_all_records(expected_headers=loans_sheet.row_values(1))
+        # Use the pre-computed header — avoids a redundant row_values(1) API call
+        hdrs = _LOANS_HEADERS if _LOANS_HEADERS else None
+        return loans_sheet.get_all_records(expected_headers=hdrs) if hdrs else loans_sheet.get_all_records()
     
     rows = retry_with_backoff(fetch)
     loans = []
@@ -1890,7 +1931,6 @@ def change_username():
         # Update username in Logs sheet if it exists
         try:
             def update_logs():
-                logs_sheet = sheet.worksheet("Logs")
                 header = logs_sheet.row_values(1)
                 all_rows = logs_sheet.get_all_values()
                 
@@ -1907,7 +1947,6 @@ def change_username():
         # Update username in CashBurns sheet if it exists
         try:
             def update_cashburns():
-                cashburns_sheet = sheet.worksheet("CashBurns")
                 header = cashburns_sheet.row_values(1)
                 all_rows = cashburns_sheet.get_all_values()
                 
@@ -2290,9 +2329,10 @@ def delete_account():
     return redirect(url_for("teacher_tools"))
 
 def log_action(user, action, amount, acceptance):
-    """Log actions to Logs sheet and invalidate cache"""
+    """Log actions to Logs sheet and invalidate cache.
+    Uses the module-level logs_sheet handle to avoid a runtime worksheet() API lookup.
+    """
     def append():
-        logs_sheet = sheet.worksheet("Logs")
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         logs_sheet.append_row([user, action, amount or "", acceptance, now])
     
@@ -2590,12 +2630,11 @@ def deny_deletion_route(row_index):
 def approve_cashburn_route(row_index):
     try:
         def get_burn():
-            cashburns_sheet = sheet.worksheet("CashBurns")
             cashburn = cashburns_sheet.row_values(row_index)
             header = cashburns_sheet.row_values(1)
-            return cashburns_sheet, cashburn, header
+            return cashburn, header
         
-        cashburns_sheet, cashburn, header = retry_with_backoff(get_burn)
+        cashburn, header = retry_with_backoff(get_burn)
         col_index = {name: idx + 1 for idx, name in enumerate(header)}
         
         requester = cashburn[col_index["Requester"] - 1]
@@ -2634,7 +2673,6 @@ def approve_cashburn_route(row_index):
 def deny_cashburn_route(row_index):
     try:
         def get_and_update():
-            cashburns_sheet = sheet.worksheet("CashBurns")
             header = cashburns_sheet.row_values(1)
             col_index = {name: idx + 1 for idx, name in enumerate(header)}
             cashburns_sheet.update_cell(row_index, col_index["Status"], "Denied")
@@ -2810,7 +2848,6 @@ def get_logs():
     
     try:
         def fetch():
-            logs_sheet = sheet.worksheet("Logs")
             return logs_sheet.get_all_records()
         
         rows = retry_with_backoff(fetch)
@@ -2829,6 +2866,48 @@ def get_logs():
         return logs
     except:
         return []
+
+# ---------- ADS HELPERS ----------
+def get_all_ads():
+    """Return every ad row (active and inactive) — used by the Ad Manager."""
+    cache_key = "ads_all"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        ads = ads_sheet.get_all_records()
+        cache.set(cache_key, ads)
+        return ads
+    except Exception as e:
+        print(f"Error fetching ads: {e}")
+        return []
+
+
+def get_ads(page=None):
+    """Return active ads, optionally filtered by page name.
+    Sorted by Priority descending (highest first = weighted rotation)."""
+    ads = get_all_ads()
+
+    # Filter by page if specified
+    if page:
+        filtered = []
+        for ad in ads:
+            pages_str = str(ad.get("Pages", "")).lower()
+            if "all" in pages_str or page.lower() in pages_str:
+                filtered.append(ad)
+        ads = filtered
+
+    # Only active ads
+    ads = [a for a in ads if str(a.get("Active", "")).upper() == "TRUE"]
+
+    # Sort by priority descending
+    try:
+        ads.sort(key=lambda a: int(a.get("Priority", 1) or 1), reverse=True)
+    except Exception:
+        pass
+
+    return ads
+
 
 @app.route("/federalreserve")
 @role_required("Banker")
@@ -2873,6 +2952,7 @@ def federal_reserve():
     weeks_remaining = get_weeks_until_project_end()
     personal_to_company_rate = get_personal_to_company_rate()
     teacher_pin = get_teacher_pin()
+    all_ads = get_all_ads()
 
     return render_template("federalreserve.html", 
                          data=data, 
@@ -2888,7 +2968,8 @@ def federal_reserve():
                          project_end_date=project_end_date,
                          weeks_remaining=weeks_remaining,
                          personal_to_company_rate=personal_to_company_rate,
-                         teacher_pin=teacher_pin)
+                         teacher_pin=teacher_pin,
+                         all_ads=all_ads)
 
 @app.route("/repair_user_data")
 @role_required("Banker")
@@ -3279,7 +3360,6 @@ def request_cashburn():
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     def append():
-        cashburns_sheet = sheet.worksheet("CashBurns")
         cashburns_sheet.append_row([requester, amount, reason, "Pending", now])
     
     retry_with_backoff(append)
@@ -3309,8 +3389,8 @@ def teacher_tools():
         user["DisplayName"] = get_display_name_from_email(user.get("Email", ""))
     
     # Separate users into Personal and Company accounts
-    personal_students = [u for u in users if u.get("Role") == "Student" and u.get("AccountType") == "Personal"]
-    company_students = [u for u in users if u.get("Role") == "Student" and u.get("AccountType") == "Company"]
+    personal_students = [u for u in users if u.get("Role") in ("Student", "Banker") and u.get("AccountType") == "Personal"]
+    company_students = [u for u in users if u.get("Role") in ("Student", "Banker") and u.get("AccountType") == "Company"]
     teachers = [u for u in users if u.get("Role") in ["Teacher", "Banker"]]
     
     normalize_roles_column()
@@ -3383,6 +3463,107 @@ def toggle_theme():
     new = "light" if current == "dark" else "dark"
     session["theme"] = new
     return jsonify({"theme": new})
+
+
+# ---------- AD MANAGEMENT ROUTES ----------
+
+@app.route("/api/ads")
+def api_ads():
+    """Public endpoint — returns ads for a given page, filtered by day schedule."""
+    page = request.args.get("page", "")
+    today = datetime.now().strftime("%a")  # Mon, Tue, Wed, Thu, Fri, Sat, Sun
+    ads = get_ads(page)
+
+    # Filter by optional day schedule
+    result = []
+    for ad in ads:
+        schedule = str(ad.get("Schedule", "")).strip()
+        if not schedule:
+            result.append(ad)
+        elif today in [s.strip() for s in schedule.split(",")]:
+            result.append(ad)
+
+    return jsonify(result)
+
+
+@app.route("/ads/add", methods=["POST"])
+@role_required("Banker")
+def ads_add():
+    """Create a new ad row in the Ads sheet."""
+    data = request.get_json()
+    all_ads = get_all_ads()
+    next_id = max([int(a.get("ID", 0) or 0) for a in all_ads], default=0) + 1
+
+    row = [
+        next_id,
+        data.get("title", ""),
+        data.get("image_url", ""),
+        data.get("link_url", ""),
+        data.get("pages", "all"),
+        data.get("schedule", ""),
+        int(data.get("priority", 1)),
+        int(data.get("interval", 5)),
+        "TRUE" if data.get("active", True) else "FALSE"
+    ]
+    ads_sheet.append_row(row)
+    cache.invalidate("ads_all")
+    return jsonify({"success": True, "id": next_id})
+
+
+@app.route("/ads/update/<int:ad_id>", methods=["POST"])
+@role_required("Banker")
+def ads_update(ad_id):
+    """Update an existing ad row by ID."""
+    data = request.get_json()
+    all_rows = ads_sheet.get_all_values()
+
+    for idx, row in enumerate(all_rows[1:], start=2):
+        if len(row) > 0 and str(row[0]) == str(ad_id):
+            new_row = [
+                ad_id,
+                data.get("title", row[1] if len(row) > 1 else ""),
+                data.get("image_url", row[2] if len(row) > 2 else ""),
+                data.get("link_url", row[3] if len(row) > 3 else ""),
+                data.get("pages", row[4] if len(row) > 4 else "all"),
+                data.get("schedule", row[5] if len(row) > 5 else ""),
+                int(data.get("priority", row[6] if len(row) > 6 else 1)),
+                int(data.get("interval", row[7] if len(row) > 7 else 5)),
+                "TRUE" if data.get("active", True) else "FALSE"
+            ]
+            ads_sheet.update([new_row], f"A{idx}:I{idx}")
+            cache.invalidate("ads_all")
+            return jsonify({"success": True})
+
+    return jsonify({"success": False, "error": "Ad not found"}), 404
+
+
+@app.route("/ads/toggle/<int:ad_id>", methods=["POST"])
+@role_required("Banker")
+def ads_toggle(ad_id):
+    """Flip the Active flag of an ad."""
+    all_rows = ads_sheet.get_all_values()
+    for idx, row in enumerate(all_rows[1:], start=2):
+        if len(row) > 0 and str(row[0]) == str(ad_id):
+            current = str(row[8]).upper() if len(row) > 8 else "FALSE"
+            new_val = "FALSE" if current == "TRUE" else "TRUE"
+            ads_sheet.update_cell(idx, 9, new_val)
+            cache.invalidate("ads_all")
+            return jsonify({"success": True, "active": new_val == "TRUE"})
+    return jsonify({"success": False, "error": "Ad not found"}), 404
+
+
+@app.route("/ads/delete/<int:ad_id>", methods=["POST"])
+@role_required("Banker")
+def ads_delete(ad_id):
+    """Delete an ad row by ID."""
+    all_rows = ads_sheet.get_all_values()
+    for idx, row in enumerate(all_rows[1:], start=2):
+        if len(row) > 0 and str(row[0]) == str(ad_id):
+            ads_sheet.delete_rows(idx)
+            cache.invalidate("ads_all")
+            return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Ad not found"}), 404
+
 
 if __name__ == "__main__":
     app.run(debug=True)
