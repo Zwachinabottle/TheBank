@@ -216,53 +216,35 @@ def get_teacher_pin():
 
 def get_interest_rate():
     """
-    Calculate interest rate based on bank's available lending capacity.
-    Uses fractional reserve banking principles:
-    - Bank can lend from its own reserves + 90% of customer deposits
-    - Low available funds = HIGH interest rates (0.5% to 5% per week)
-    - This mimics real Federal Reserve rate adjustments
+    Calculate interest rate based purely on the bank's own account balance.
+    - High bank balance = LOW interest rates (0.5%)
+    - Low/empty bank balance = HIGH interest rates (5%)
+    Uses a cap of $100,000 and steps in $1,000 increments.
     """
-    data = get_federal_reserve_stats()
+    BALANCE_CAP = 100000.0  # Balance considered "full" (min rate)
+    STEP = 1000.0            # Rate changes every $1,000
 
     try:
-        # Get bank account balance
         bank_account = get_bank_account()
         bank_balance = float(bank_account.get("Balance", 0))
-        
-        # Get total customer deposits (Student + Teacher funds)
-        student_money = float(data.get("Student", 0))
-        teacher_money = float(data.get("Teacher", 0))
-        total_deposits = student_money + teacher_money
-        
-        # Calculate lendable funds:
-        # Bank's own money + 90% of customer deposits (keeping 10% reserve)
-        lendable_funds = bank_balance + (total_deposits * 0.9)
-        
-        # Get current outstanding loans
-        total_loaned = float(data.get("Loaned", 0))
-        
-        # Calculate available lending capacity
-        available_capacity = lendable_funds - total_loaned
-        
-        # If we have negative capacity or very low funds, max out interest rate
-        if available_capacity <= 0:
-            return 0.05  # 5% - maximum rate when bank is tapped out
-        
-        # Calculate capacity ratio (0 = empty, 1 = full capacity)
-        if lendable_funds > 0:
-            capacity_ratio = available_capacity / lendable_funds
-        else:
-            return 0.05  # Max rate if no lendable funds
-        
-        # Interest rate formula: INVERSE relationship
-        # Low capacity (0) → 5% rate
-        # High capacity (1) → 0.5% rate
-        # Linear interpolation: rate = 0.05 - (capacity_ratio * 0.045)
+
+        # If bank is empty or negative, charge max rate
+        if bank_balance <= 0:
+            return 0.05  # 5%
+
+        # Snap balance down to nearest $1,000 increment
+        stepped_balance = (bank_balance // STEP) * STEP
+
+        # Capacity ratio based on stepped balance
+        capacity_ratio = min(stepped_balance / BALANCE_CAP, 1.0)
+
+        # Inverse relationship: more money → lower rate
+        # ratio=1.0 ($100k+) → 0.5%, ratio=0.0 ($0) → 5%
         interest_rate = 0.05 - (capacity_ratio * 0.045)
-        
+
         # Clamp between 0.5% and 5%
         interest_rate = max(0.005, min(0.05, interest_rate))
-        
+
         return round(interest_rate, 4)
 
     except (ValueError, KeyError, TypeError):
@@ -778,7 +760,7 @@ def recalculate_federal_reserve():
                 # Calculate how much was originally loaned
                 total_loaned_out += original_amount
                 
-                # Calculate how much has been repaid (weeks passed * weekly payment)
+                # Calculate how much has been repaid (days passed * daily payment)
                 if total_weeks > 0:
                     weeks_paid = total_weeks - weeks_remaining
                     weekly_payment = float(loan.get("Weekly", 0))
@@ -875,32 +857,31 @@ def get_project_end_date():
 def set_project_end_date(date_string):
     """Set project end date (format: YYYY-MM-DD)"""
     set_fed_value("ProjectEndDate", date_string)
-    cache.invalidate("project_end_date", "weeks_until_project_end")
+    cache.invalidate("project_end_date", "days_until_project_end")
 
-def get_weeks_until_project_end():
-    """Calculate weeks remaining until project end date"""
-    cache_key = "weeks_until_project_end"
+def get_days_until_project_end():
+    """Calculate days remaining until project end date"""
+    cache_key = "days_until_project_end"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
     
     end_date_str = get_project_end_date()
     if not end_date_str:
-        # Default to 9 weeks if not set
-        return 9
+        # Default to 63 days (9 weeks) if not set
+        return 63
     
     try:
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
         today = datetime.now()
-        days_remaining = (end_date - today).days
-        weeks_remaining = max(1, (days_remaining + 6) // 7)  # Round up, minimum 1 week
-        cache.set(cache_key, weeks_remaining)
-        return weeks_remaining
+        days_remaining = max(1, (end_date - today).days)  # minimum 1 day
+        cache.set(cache_key, days_remaining)
+        return days_remaining
     except:
-        return 9
+        return 63
 
 def process_loan_payments():
-    """Process all loan payments that are due (automated weekly deductions)"""
+    """Process all loan payments that are due (automated daily deductions)"""
     from datetime import datetime, timedelta
     
     def get_loan_data():
@@ -948,8 +929,8 @@ def process_loan_payments():
             update_bank_balance(new_bank_balance)
             
             # Add transaction
-            week_number = int(loan.get('Weeks', 0)) - weeks_remaining + 1
-            add_transaction(requester, "Bank", weekly_payment, f"Loan payment (week {week_number})")
+            day_number = int(loan.get('Weeks', 0)) - weeks_remaining + 1
+            add_transaction(requester, "Bank", weekly_payment, f"Loan payment (day {day_number})")
             
             # Update loan record
             weeks_remaining -= 1
@@ -967,8 +948,8 @@ def process_loan_payments():
                     loans_sheet.update_cell(idx, col_index["Status"], "Paid")
                     loans_sheet.update_cell(idx, col_index["NextPaymentDate"], "")
                 else:
-                    # Set next payment date (7 days from now)
-                    next_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+                    # Set next payment date (1 day from now)
+                    next_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
                     loans_sheet.update_cell(idx, col_index["NextPaymentDate"], next_date)
             
             retry_with_backoff(update_loan)
@@ -2026,8 +2007,8 @@ def loan():
         return redirect(url_for("login"))
     interest_rate = get_interest_rate()
     
-    # Get weeks until project end
-    max_weeks = get_weeks_until_project_end()
+    # Get days until project end
+    max_days = get_days_until_project_end()
     project_end_date = get_project_end_date()
 
     if request.method == "POST":
@@ -2036,12 +2017,12 @@ def loan():
         amount = float(request.form["amount"])
         weeks = int(request.form["weeks"])
         
-        # Validate amount and weeks are positive
+        # Validate amount and days are positive
         if amount <= 0:
             flash("Loan amount must be greater than zero", "error")
             return redirect(url_for("loan"))
-        if weeks <= 0 or weeks > max_weeks:
-            flash(f"Loan duration must be between 1 and {max_weeks} weeks", "error")
+        if weeks <= 0 or weeks > 7:
+            flash("Loan duration must be between 1 and 7 days", "error")
             return redirect(url_for("loan"))
         
         loan_money(sender, reason, amount, weeks)
@@ -2049,7 +2030,7 @@ def loan():
         return redirect(url_for("account"))
 
     return render_template("loan.html", username=session["user"], irate=interest_rate, 
-                         max_weeks=max_weeks, project_end_date=project_end_date)
+                         max_days=max_days, project_end_date=project_end_date)
 
 
 @app.route("/teachertoolslogin", methods=["GET", "POST"])

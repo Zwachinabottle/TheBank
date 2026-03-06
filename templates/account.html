@@ -843,8 +843,8 @@
         <div class="loan-item">
           <p><strong>Reason:</strong> {{ loan.Reason }}</p>
           <p><strong>Amount:</strong> <span class="dollar">$</span>{{ "%.2f"|format(loan.Amount) }}</p>
-          <p><strong>Weekly Payment:</strong> <span class="dollar">$</span>{{ "%.2f"|format(loan.Weekly) }}</p>
-          <p><strong>Duration:</strong> {{ loan.Weeks }} weeks</p>
+          <p><strong>Daily Payment:</strong> <span class="dollar">$</span>{{ "%.2f"|format(loan.Weekly) }}</p>
+          <p><strong>Duration:</strong> {{ loan.Weeks }} days</p>
           <p><strong>Applied:</strong> {{ loan.Date }}</p>
           <span class="loan-status {{ loan.Status|lower }}">{{ loan.Status }}</span>
         </div>

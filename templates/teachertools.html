@@ -1044,7 +1044,7 @@
                             <span class="loan-status {{ loan.Status|lower }}">{{ loan.Status }}</span>
                         </td>
                         <td>${{ "%.2f"|format(loan.Amount) }}</td>
-                        <td>${{ "%.2f"|format(loan.Weekly) }}/wk for {{ loan.Weeks }} weeks</td>
+                        <td>${{ "%.2f"|format(loan.Weekly) }}/day for {{ loan.Weeks }} days</td>
                         <td style="color:var(--text-muted); font-size: 13px;">{{ loan.Reason }}</td>
                         <td style="font-size: 12px; color: var(--text-muted);">{{ loan.Date }}</td>
                     </tr>

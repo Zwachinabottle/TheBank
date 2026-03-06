@@ -1498,7 +1498,7 @@
               {% for loan in pending_loans %}
               <tr>
                 <td><b>{{ loan.Requester }}</b></td>
-                <td>${{ "%.2f"|format(loan.Amount) }} for {{ loan.Weeks }} weeks</td>
+                <td>${{ "%.2f"|format(loan.Amount) }} for {{ loan.Weeks }} days</td>
                 <td style="color: var(--text-muted); font-size: 12px;">{{ loan.Reason }}</td>
                 <td style="text-align: right;">
                   <form method="POST" action="/approve_loan/{{ loan.row }}" style="display:inline;">
@@ -1649,7 +1649,7 @@
                     {% if loan.Status == "Active" %}
                     <span style="color: var(--text-muted);">
                       ${{ "%.2f"|format(loan.TotalPaid) }} / ${{ "%.2f"|format(loan.TotalAmount) }}
-                      ({{ loan.Weeks - loan.WeeksRemaining }}/{{ loan.Weeks }} weeks)
+                      ({{ loan.Weeks - loan.WeeksRemaining }}/{{ loan.Weeks }} days)
                     </span>
                     {% elif loan.Status == "Paid" %}
                     <span style="color: #22c55e;">Complete</span>
@@ -1680,7 +1680,7 @@
                     {% if loan.Status == "Active" %}
                     <span style="color: var(--brand);">
                       <strong>${{ "%.2f"|format(loan.RemainingAmount) }}</strong> 
-                      ({{ loan.WeeksRemaining }} weeks)
+                      ({{ loan.WeeksRemaining }} days)
                     </span>
                     {% else %}
                     <span style="color: var(--text-muted);">—</span>
@@ -1920,7 +1920,7 @@
                 <div class="setting-item">
                   <label class="setting-label">
                     <span class="setting-name">Max Interest Rate</span>
-                    <span class="setting-description">No lending capacity (5% / week)</span>
+                    <span class="setting-description">No lending capacity (5% / day)</span>
                   </label>
                   <div style="display: flex; gap: 8px; align-items: center;">
                     <input type="number" id="max-interest" value="5.0" step="0.1" min="0.1" max="20" class="setting-input" style="flex: 1;">
@@ -1932,7 +1932,7 @@
                 <div class="setting-item">
                   <label class="setting-label">
                     <span class="setting-name">Min Interest Rate</span>
-                    <span class="setting-description">Max lending capacity (0.5% / week)</span>
+                    <span class="setting-description">Max lending capacity (0.5% / day)</span>
                   </label>
                   <div style="display: flex; gap: 8px; align-items: center;">
                     <input type="number" id="min-interest" value="0.5" step="0.1" min="0.1" max="5" class="setting-input" style="flex: 1;">
@@ -2359,11 +2359,11 @@
           break;
         case 'max_interest':
           value = document.getElementById('max-interest').value;
-          message = `Maximum interest rate updated to: ${value}% per week`;
+          message = `Maximum interest rate updated to: ${value}% per day`;
           break;
         case 'min_interest':
           value = document.getElementById('min-interest').value;
-          message = `Minimum interest rate updated to: ${value}% per week`;
+          message = `Minimum interest rate updated to: ${value}% per day`;
           break;
         case 'reserve_requirement':
           value = document.getElementById('reserve-requirement').value;
