@@ -117,6 +117,32 @@ except Exception:
     ads_sheet = sheet.add_worksheet("Ads", rows=1000, cols=9)
     ads_sheet.update([["ID", "Title", "ImageURL", "LinkURL", "Pages", "Schedule", "Priority", "Interval", "Active"]], 'A1:I1')
 
+# Pre-load the Lottery tickets sheet.
+try:
+    lottery_sheet = sheet.worksheet("Lottery")
+except Exception:
+    lottery_sheet = sheet.add_worksheet("Lottery", rows=5000, cols=6)
+    lottery_sheet.update([["TicketID", "Username", "Number1", "VexBall", "PurchaseDate", "Drawing"]], 'A1:F1')
+
+# Load the Investments sheet (teacher-maintained company net-worth table).
+try:
+    investments_sheet = sheet.worksheet("Investments")
+except Exception:
+    investments_sheet = None  # page will show a friendly error if missing
+
+# Pre-load the StockHoldings sheet (per-user investment tracking).
+# Schema: Username | Company | InvestedAmount | NetWorthAtInvestment
+try:
+    stock_holdings_sheet = sheet.worksheet("StockHoldings")
+    # Migrate old schema (Ticker/Shares/AvgCostBasis) → new schema if needed
+    _sh_header = stock_holdings_sheet.row_values(1)
+    if _sh_header and _sh_header[1:3] == ["Ticker", "Shares"]:
+        stock_holdings_sheet.clear()
+        stock_holdings_sheet.update([["Username", "Company", "InvestedAmount", "NetWorthAtInvestment"]], 'A1:D1')
+except Exception:
+    stock_holdings_sheet = sheet.add_worksheet("StockHoldings", rows=2000, cols=4)
+    stock_holdings_sheet.update([["Username", "Company", "InvestedAmount", "NetWorthAtInvestment"]], 'A1:D1')
+
 # Ensure Transactions sheet has a proper header row
 trans_required_headers = ["Sender", "Receiver", "Amount", "Date", "Comment"]
 trans_header = transactions_sheet.row_values(1)
@@ -880,6 +906,11 @@ def get_days_until_project_end():
     except:
         return 63
 
+def get_weeks_until_project_end():
+    """Calculate weeks remaining until project end date"""
+    days = get_days_until_project_end()
+    return max(1, round(days / 7))
+
 def process_loan_payments():
     """Process all loan payments that are due (automated daily deductions)"""
     from datetime import datetime, timedelta
@@ -1555,6 +1586,267 @@ def get_all_loans():
     ), reverse=True)
     cache.set(cache_key, loans)
     return loans
+
+
+# ---------- STOCK FLOOR HELPERS ----------
+
+def _parse_nw(raw):
+    """Convert a raw cell value like '$1,234.56' or '1234.56' to float, or 0.0."""
+    try:
+        return float(str(raw).replace(",", "").replace("$", "").strip())
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def get_investments_data():
+    """
+    Parse the Investments sheet and return structured company + meta data.
+
+    Sheet layout (1-based rows):
+      Row 1  → week column headers  (col A = label, col B+ = week names)
+      Row 2  → inflation rates      (col A = "Inflation", col B+ = values)
+      Rows 3+ → companies           (col A = company name, col B+ = net worth per week)
+    """
+    cache_key = "investments_data"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    if investments_sheet is None:
+        return {"companies": [], "inflation": "", "currentWeek": "", "allWeeks": []}
+
+    def fetch():
+        return investments_sheet.get_all_values()
+
+    raw = retry_with_backoff(fetch)
+
+    if not raw:
+        return {"companies": [], "inflation": "", "currentWeek": "", "allWeeks": []}
+
+    # --- row indices (0-based) ---
+    weeks_row     = raw[0] if len(raw) > 0 else []   # row 1: week headers
+    inflation_row = raw[1] if len(raw) > 1 else []   # row 2: inflation values
+
+    # All week labels in col B onward (index 1+)
+    all_weeks = [str(weeks_row[i]) for i in range(1, len(weeks_row)) if str(weeks_row[i]).strip()]
+
+    company_rows = raw[2:] if len(raw) > 2 else []
+
+    # Determine current week: look for a row where col A contains "CurrentWeek" (case-insensitive)
+    # and read the week number from col B. Fall back to rightmost filled week.
+    current_col = 1
+    for row in raw:
+        if row and str(row[0]).strip().lower().replace(" ", "") == "currentweek":
+            stored = str(row[1]).strip() if len(row) > 1 else ""
+            # Match stored value against week labels (robust — works regardless of gaps)
+            matched = False
+            for i in range(1, len(weeks_row)):
+                if str(weeks_row[i]).strip().lower() == stored.lower():
+                    current_col = i
+                    matched = True
+                    break
+            if not matched and stored:
+                # Legacy fallback: stored value might be a numeric column index
+                try:
+                    target_col = int(stored)
+                    max_col = max((i for i in range(1, len(weeks_row)) if str(weeks_row[i]).strip()), default=1)
+                    current_col = max(1, min(target_col, max_col))
+                except (ValueError, IndexError):
+                    pass
+            break
+    else:
+        # No CurrentWeek row found — use rightmost week that has a label
+        for i in range(1, len(weeks_row)):
+            if str(weeks_row[i]).strip():
+                current_col = i
+
+    current_week_label = str(weeks_row[current_col]) if current_col < len(weeks_row) else ""
+
+    # Inflation for current week
+    current_inflation = ""
+    if current_col < len(inflation_row) and str(inflation_row[current_col]).strip():
+        current_inflation = str(inflation_row[current_col]).strip()
+
+    # Parse companies: every row from row 3 onward that has a name in col A
+    companies = []
+    for row in company_rows:
+        name = str(row[0]).strip() if row else ""
+        if not name or name.lower() == "inflation":
+            continue
+
+        # Build history for every labelled week
+        history = []
+        for i in range(1, len(weeks_row)):
+            if not str(weeks_row[i]).strip():
+                continue
+            val = _parse_nw(row[i]) if i < len(row) else 0.0
+            history.append({"week": str(weeks_row[i]), "netWorth": val})
+
+        current_nw = _parse_nw(row[current_col]) if current_col < len(row) else 0.0
+
+        # Previous week value for change %
+        prev_nw = 0.0
+        if current_col > 1:
+            prev_nw = _parse_nw(row[current_col - 1]) if (current_col - 1) < len(row) else 0.0
+
+        change_pct = round((current_nw - prev_nw) / prev_nw * 100, 2) if prev_nw > 0 else 0.0
+
+        companies.append({
+            "name":         name,
+            "netWorth":     current_nw,
+            "prevNetWorth": prev_nw,
+            "changePct":    change_pct,
+            "history":      history,
+        })
+
+    result = {
+        "companies":   companies,
+        "inflation":   current_inflation,
+        "currentWeek": current_week_label,
+        "allWeeks":    all_weeks,
+    }
+    # Only cache if we actually got companies — prevents stale empty results
+    if companies:
+        cache.set(cache_key, result)
+    return result
+
+
+def get_user_investment_holdings(username):
+    """Return a list of {Company, InvestedAmount, NetWorthAtInvestment} for a user."""
+    cache_key = f"holdings_{username}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    def fetch():
+        return stock_holdings_sheet.get_all_records()
+
+    all_rows = retry_with_backoff(fetch)
+    holdings = [r for r in all_rows if r.get("Username") == username]
+    for h in holdings:
+        try:
+            h["InvestedAmount"]       = float(h.get("InvestedAmount", 0) or 0)
+            h["NetWorthAtInvestment"] = float(h.get("NetWorthAtInvestment", 0) or 0)
+        except (ValueError, TypeError):
+            pass
+    cache.set(cache_key, holdings)
+    return holdings
+
+
+def invest_in_company(username, company_name, amount):
+    """
+    Invest `amount` dollars from `username`'s balance into `company_name`.
+    Returns: 'success' | 'company_not_found' | 'insufficient_balance'
+             | 'invalid_amount' | 'no_net_worth'
+    """
+    if amount <= 0:
+        return "invalid_amount"
+
+    with get_transfer_lock(username):
+        cache.invalidate("all_users", f"user_balance_{username}", "investments_data")
+
+        data = get_investments_data()
+        company = next((c for c in data["companies"] if c["name"] == company_name), None)
+        if not company:
+            return "company_not_found"
+        if company["netWorth"] <= 0:
+            return "no_net_worth"
+
+        balance = get_user_balance(username)
+        if balance < amount:
+            return "insufficient_balance"
+
+        # Deduct from user balance
+        update_balance(username, round(balance - amount, 2))
+        add_transaction(username, "INVESTMENTS", amount,
+                        f"Invested ${amount:.2f} in {company_name}")
+
+        # Update holdings (weighted average if already invested)
+        def update_holdings():
+            all_rows = stock_holdings_sheet.get_all_records()
+            for idx, row in enumerate(all_rows, start=2):
+                if row.get("Username") == username and row.get("Company") == company_name:
+                    existing_inv  = float(row.get("InvestedAmount", 0) or 0)
+                    existing_nw   = float(row.get("NetWorthAtInvestment", 0) or 0)
+                    new_inv       = existing_inv + amount
+                    # Weighted average of entry net worth
+                    new_entry_nw  = round(
+                        (existing_nw * existing_inv + company["netWorth"] * amount) / new_inv, 4
+                    )
+                    stock_holdings_sheet.update_cell(idx, 3, round(new_inv, 4))
+                    stock_holdings_sheet.update_cell(idx, 4, new_entry_nw)
+                    return
+            stock_holdings_sheet.append_row(
+                [username, company_name, round(amount, 4), round(company["netWorth"], 4)]
+            )
+
+        retry_with_backoff(update_holdings)
+        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", "all_users")
+        return "success"
+
+
+def divest_from_company(username, company_name, withdraw_amount):
+    """
+    Withdraw `withdraw_amount` dollars (current value) from `username`'s investment
+    in `company_name`.  The actual proceeds = withdraw_amount (we pay out at current value).
+    Returns: 'success' | 'company_not_found' | 'not_enough_investment'
+             | 'invalid_amount' | 'no_net_worth'
+    """
+    if withdraw_amount <= 0:
+        return "invalid_amount"
+
+    with get_transfer_lock(username):
+        cache.invalidate("all_users", f"user_balance_{username}", "investments_data",
+                         f"holdings_{username}")
+
+        data = get_investments_data()
+        company = next((c for c in data["companies"] if c["name"] == company_name), None)
+        if not company:
+            return "company_not_found"
+        if company["netWorth"] <= 0:
+            return "no_net_worth"
+
+        holdings = get_user_investment_holdings(username)
+        holding  = next((h for h in holdings if h.get("Company") == company_name), None)
+
+        if not holding:
+            return "not_enough_investment"
+
+        # Current value of their entire stake
+        entry_nw = holding["NetWorthAtInvestment"]
+        invested = holding["InvestedAmount"]
+        current_value = round(
+            invested * (company["netWorth"] / entry_nw) if entry_nw > 0 else 0.0, 2
+        )
+
+        if withdraw_amount > current_value + 0.005:  # small float tolerance
+            return "not_enough_investment"
+
+        # Fraction of stake being withdrawn
+        fraction = withdraw_amount / current_value if current_value > 0 else 1.0
+        remaining_invested = round(invested * (1 - fraction), 4)
+
+        def update_holdings():
+            all_rows = stock_holdings_sheet.get_all_records()
+            for idx, row in enumerate(all_rows, start=2):
+                if row.get("Username") == username and row.get("Company") == company_name:
+                    if remaining_invested <= 0.001:
+                        stock_holdings_sheet.delete_rows(idx)
+                    else:
+                        stock_holdings_sheet.update_cell(idx, 3, remaining_invested)
+                    return
+
+        retry_with_backoff(update_holdings)
+
+        # Credit user balance
+        balance = get_user_balance(username)
+        update_balance(username, round(balance + withdraw_amount, 2))
+        add_transaction("INVESTMENTS", username, withdraw_amount,
+                        f"Withdrew ${withdraw_amount:.2f} from {company_name}")
+
+        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", "all_users")
+        return "success"
+
 
 # ---------- ROUTES ----------
 @app.route("/", methods=["GET", "POST"])
@@ -2935,6 +3227,11 @@ def federal_reserve():
     teacher_pin = get_teacher_pin()
     all_ads = get_all_ads()
 
+    # Investment week info for the settings panel
+    inv_data = get_investments_data()
+    inv_all_weeks = inv_data["allWeeks"]
+    inv_current_week = inv_data["currentWeek"]
+
     return render_template("federalreserve.html", 
                          data=data, 
                          users=sanitized_users,
@@ -2950,7 +3247,9 @@ def federal_reserve():
                          weeks_remaining=weeks_remaining,
                          personal_to_company_rate=personal_to_company_rate,
                          teacher_pin=teacher_pin,
-                         all_ads=all_ads)
+                         all_ads=all_ads,
+                         inv_all_weeks=inv_all_weeks,
+                         inv_current_week=inv_current_week)
 
 @app.route("/repair_user_data")
 @role_required("Banker")
@@ -3363,7 +3662,7 @@ def teacher_tools():
 
     username = session["user"]
     users = get_all_users_with_balances()
-    loans = get_all_loans()  # Add this
+    loans = [l for l in get_all_loans() if str(l.get("Status", "")).strip().lower() != "declined"]
     
     # Add display names to all users based on their email
     for user in users:
@@ -3544,6 +3843,417 @@ def ads_delete(ad_id):
             cache.invalidate("ads_all")
             return jsonify({"success": True})
     return jsonify({"success": False, "error": "Ad not found"}), 404
+
+
+# ---------- LOTTERY HELPERS ----------
+
+def ensure_lottery_pools():
+    """Ensure lottery pool accounts exist in the users sheet."""
+    pool_accounts = [
+        ("LotteryPrize",      "System", "LotteryFund"),
+        ("LotteryReserve",    "System", "LotteryFund"),
+        ("LotteryEmployment", "System", "LotteryFund"),
+    ]
+    users = get_all_users()
+    existing = {u["Username"] for u in users}
+    created = False
+    for uname, role, actype in pool_accounts:
+        if uname not in existing:
+            def _create(un=uname, r=role, at=actype):
+                users_sheet.append_row([un, "LotteryInternal", "0",
+                                        "No", r, "", at,
+                                        "0000-0000-0000-0000", "0000", "0"])
+            retry_with_backoff(_create)
+            created = True
+    if created:
+        cache.invalidate("all_users")
+
+
+def get_lottery_pool_balances():
+    """Return {prize, reserve, employment} pool balances."""
+    users = get_all_users()
+    mapping = {
+        "LotteryPrize":      "prize",
+        "LotteryReserve":    "reserve",
+        "LotteryEmployment": "employment",
+    }
+    result = {"prize": 0.0, "reserve": 0.0, "employment": 0.0}
+    for u in users:
+        key = mapping.get(u["Username"])
+        if key:
+            try:
+                result[key] = float(u.get("Balance") or 0)
+            except (ValueError, TypeError):
+                result[key] = 0.0
+    return result
+
+
+def get_user_lottery_tickets(username):
+    """Return all lottery tickets for a user."""
+    cache_key = f"lottery_tickets_{username}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    def fetch():
+        return lottery_sheet.get_all_records()
+    rows = retry_with_backoff(fetch)
+    tickets = [r for r in rows if r.get("Username") == username]
+    cache.set(cache_key, tickets)
+    return tickets
+
+
+def invalidate_lottery_caches(username=None):
+    cache.invalidate("all_users", "bank_account")
+    if username:
+        cache.invalidate(
+            f"lottery_tickets_{username}",
+            f"user_balance_{username}",
+            f"user_data_{username}",
+        )
+
+
+# ---------- LOTTERY ROUTES ----------
+
+@app.route("/lottery")
+def lottery():
+    if "user" not in session:
+        return redirect(url_for("login"))
+    ensure_lottery_pools()
+    username = session["user"]
+    pools        = get_lottery_pool_balances()
+    user_tickets = get_user_lottery_tickets(username)
+    user_balance = get_user_balance(username)
+    return render_template(
+        "lottery.html",
+        pools=pools,
+        user_tickets=user_tickets,
+        user_balance=user_balance,
+    )
+
+
+@app.route("/lottery/buy", methods=["POST"])
+def lottery_buy():
+    import random as _random
+    if "user" not in session:
+        return redirect(url_for("login"))
+
+    username = session["user"]
+
+    if is_frozen(username):
+        flash("Your account is frozen. Contact your teacher.", "error")
+        return redirect(url_for("lottery"))
+
+    # ── Quantity ──────────────────────────────────────────────
+    try:
+        quantity = int(request.form.get("quantity", 0))
+        if quantity <= 0:
+            raise ValueError("non-positive")
+    except (ValueError, TypeError):
+        flash("Invalid ticket quantity.", "error")
+        return redirect(url_for("lottery"))
+
+    if quantity > 1000:
+        flash("Maximum 1,000 tickets per purchase.", "error")
+        return redirect(url_for("lottery"))
+
+    total_cost = round(quantity * 2.0, 2)   # $2 per ticket
+
+    # ── Balance check ─────────────────────────────────────────
+    user_balance = get_user_balance(username)
+    if user_balance < total_cost:
+        flash(
+            f"Insufficient balance. Need ${total_cost:.2f}, have ${user_balance:.2f}.",
+            "error",
+        )
+        return redirect(url_for("lottery"))
+
+    # ── Number selection ──────────────────────────────────────
+    import json as _json
+    pick_mode    = request.form.get("pick_mode", "auto")
+    tickets_json = request.form.get("tickets_json", "").strip()
+
+    if pick_mode == "manual":
+        # Per-ticket JSON: [[n1,n2,n3,n4,vex], ...]
+        if tickets_json:
+            try:
+                parsed = _json.loads(tickets_json)
+                if not isinstance(parsed, list) or len(parsed) != quantity:
+                    raise ValueError("length mismatch")
+                tickets_data = []
+                for entry in parsed:
+                    if len(entry) != 5:
+                        raise ValueError("expected 5 values per ticket")
+                    nums = [int(entry[j]) for j in range(4)]
+                    vex  = int(entry[4])
+                    for n in nums:
+                        if not (1 <= n <= 8):
+                            raise ValueError("main number out of range")
+                    if len(set(nums)) != 4:
+                        raise ValueError("numbers must be unique")
+                    if not (1 <= vex <= 10):
+                        raise ValueError("vex out of range")
+                    tickets_data.append((sorted(nums), vex))
+            except (ValueError, TypeError, KeyError, IndexError) as exc:
+                flash(f"Invalid ticket numbers: {exc}. Main: 4 unique from 1-8, Vex Ball: 1-10.", "error")
+                return redirect(url_for("lottery"))
+        else:
+            flash("Please use the Pick Numbers form to enter your numbers.", "error")
+            return redirect(url_for("lottery"))
+    else:
+        tickets_data = [
+            (sorted(_random.sample(range(1, 9), 4)), _random.randint(1, 10))
+            for _ in range(quantity)
+        ]
+
+    # ── Deduct from user ──────────────────────────────────────
+    new_user_bal = round(user_balance - total_cost, 2)
+    update_balance(username, new_user_bal)
+
+    # ── Distribute to pools (70 / 20 / 10) ───────────────────
+    prize_cut      = round(total_cost * 0.70, 2)
+    employment_cut = round(total_cost * 0.20, 2)
+    reserve_cut    = round(total_cost - prize_cut - employment_cut, 2)  # absorbs rounding
+
+    pools = get_lottery_pool_balances()
+    update_balance("LotteryPrize",      round(pools["prize"]      + prize_cut,      2))
+    update_balance("LotteryReserve",    round(pools["reserve"]    + reserve_cut,    2))
+    update_balance("LotteryEmployment", round(pools["employment"] + employment_cut, 2))
+
+    # ── Save tickets to sheet ─────────────────────────────────
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _get_next_id():
+        return len(lottery_sheet.get_all_values())   # header + rows = next sequential id
+
+    start_id = retry_with_backoff(_get_next_id)
+
+    new_rows = [
+        [f"TKT-{start_id + i:06d}", username,
+         ",".join(str(n) for n in nums),   # e.g. "2,4,6,8"
+         vex, now_str, "Active"]
+        for i, (nums, vex) in enumerate(tickets_data)
+    ]
+
+    def _append():
+        lottery_sheet.append_rows(new_rows, value_input_option="RAW")
+
+    retry_with_backoff(_append)
+
+    # ── Log transaction ───────────────────────────────────────
+    add_transaction(
+        username, "LotteryPrize", total_cost,
+        f"Lottery ticket purchase x{quantity}",
+    )
+
+    invalidate_lottery_caches(username)
+
+    flash(
+        f"🎟️ Purchased {quantity} ticket{'s' if quantity != 1 else ''}! "
+        f"First ticket: [{', '.join(str(n) for n in tickets_data[0][0])}] + Vex {tickets_data[0][1]}. Good luck!",
+        "success",
+    )
+    return redirect(url_for("lottery"))
+
+
+@app.route("/api/lottery/status")
+def api_lottery_status():
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    ensure_lottery_pools()
+    pools    = get_lottery_pool_balances()
+    username = session["user"]
+    tickets  = get_user_lottery_tickets(username)
+    return jsonify({
+        "pools":            pools,
+        "jackpot":          pools["prize"],
+        "user_ticket_count": len(tickets),
+    })
+
+
+# ---------- STOCK FLOOR ROUTES ----------
+
+@app.route("/stocks")
+def stocks():
+    """Investment Floor — view companies from Investments sheet and the user's portfolio."""
+    if "user" not in session:
+        return redirect(url_for("login"))
+    username = session["user"]
+    inv_data  = get_investments_data()
+    # If cache returned empty companies, bust and re-fetch once
+    if not inv_data["companies"]:
+        cache.invalidate("investments_data")
+        inv_data = get_investments_data()
+    holdings  = get_user_investment_holdings(username)
+    balance   = get_user_balance(username)
+
+    # Map company name → holding for template lookup
+    holdings_map = {h["Company"]: h for h in holdings}
+
+    # Compute current portfolio value (each stake grows with net worth)
+    portfolio_value = 0.0
+    for h in holdings:
+        company = next((c for c in inv_data["companies"] if c["name"] == h["Company"]), None)
+        if company and h["NetWorthAtInvestment"] > 0:
+            portfolio_value += h["InvestedAmount"] * (company["netWorth"] / h["NetWorthAtInvestment"])
+
+    return render_template(
+        "stocks.html",
+        companies=inv_data["companies"],
+        inflation=inv_data["inflation"],
+        current_week=inv_data["currentWeek"],
+        all_weeks=inv_data["allWeeks"],
+        holdings_map=holdings_map,
+        portfolio_value=round(portfolio_value, 2),
+        balance=balance,
+    )
+
+
+@app.route("/stocks/buy", methods=["POST"])
+def stocks_buy():
+    """Handle an invest form submission."""
+    if "user" not in session:
+        return redirect(url_for("login"))
+    username     = session["user"]
+    company_name = request.form.get("company", "").strip()
+    try:
+        amount = round(float(request.form.get("amount", 0)), 2)
+    except ValueError:
+        flash("Invalid amount.", "error")
+        return redirect(url_for("stocks"))
+
+    result = invest_in_company(username, company_name, amount)
+    if result == "success":
+        flash(f"Successfully invested ${amount:.2f} in {company_name}!", "success")
+    elif result == "insufficient_balance":
+        flash("Insufficient balance to complete this investment.", "error")
+    elif result == "company_not_found":
+        flash("Company not found.", "error")
+    elif result == "no_net_worth":
+        flash("This company has no net worth data yet.", "error")
+    elif result == "invalid_amount":
+        flash("Amount must be greater than zero.", "error")
+    else:
+        flash("Transaction failed. Please try again.", "error")
+
+    return redirect(url_for("stocks"))
+
+
+@app.route("/stocks/sell", methods=["POST"])
+def stocks_sell():
+    """Handle a withdraw/divest form submission."""
+    if "user" not in session:
+        return redirect(url_for("login"))
+    username     = session["user"]
+    company_name = request.form.get("company", "").strip()
+    try:
+        amount = round(float(request.form.get("amount", 0)), 2)
+    except ValueError:
+        flash("Invalid amount.", "error")
+        return redirect(url_for("stocks"))
+
+    result = divest_from_company(username, company_name, amount)
+    if result == "success":
+        flash(f"Successfully withdrew ${amount:.2f} from {company_name}!", "success")
+    elif result == "not_enough_investment":
+        flash("You don't have enough invested to withdraw that amount.", "error")
+    elif result == "company_not_found":
+        flash("Company not found.", "error")
+    elif result == "no_net_worth":
+        flash("This company has no net worth data yet.", "error")
+    elif result == "invalid_amount":
+        flash("Amount must be greater than zero.", "error")
+    else:
+        flash("Transaction failed. Please try again.", "error")
+
+    return redirect(url_for("stocks"))
+
+
+@app.route("/api/stocks")
+def api_stocks():
+    """JSON endpoint — returns live company data + user holdings."""
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    username = session["user"]
+    inv_data = get_investments_data()
+    holdings = get_user_investment_holdings(username)
+    holdings_map = {h["Company"]: h for h in holdings}
+    result = []
+    for c in inv_data["companies"]:
+        h = holdings_map.get(c["name"], {})
+        inv    = h.get("InvestedAmount", 0)
+        nw_in  = h.get("NetWorthAtInvestment", 0)
+        cur_val = round(inv * (c["netWorth"] / nw_in), 2) if nw_in > 0 else 0.0
+        result.append({
+            "name":          c["name"],
+            "netWorth":      c["netWorth"],
+            "changePct":     c["changePct"],
+            "history":       c["history"],
+            "userInvested":  inv,
+            "currentValue":  cur_val,
+            "pl":            round(cur_val - inv, 2),
+        })
+    return jsonify({
+        "companies":   result,
+        "inflation":   inv_data["inflation"],
+        "currentWeek": inv_data["currentWeek"],
+    })
+
+
+@app.route("/set_investment_week", methods=["POST"])
+@role_required("Banker")
+def set_investment_week():
+    """Write the CurrentWeek marker into the Investments sheet so the
+    parser picks up the correct week column."""
+    week_label = request.form.get("week_label", "").strip()
+    if not week_label:
+        flash("Invalid week selection.", "error")
+        return redirect(url_for("federal_reserve"))
+
+    if investments_sheet is None:
+        flash("Investments sheet not found.", "error")
+        return redirect(url_for("federal_reserve"))
+
+    def write_week():
+        raw = investments_sheet.get_all_values()
+        # Look for existing CurrentWeek row
+        for i, row in enumerate(raw):
+            if row and str(row[0]).strip().lower().replace(" ", "") == "currentweek":
+                investments_sheet.update_cell(i + 1, 2, week_label)
+                return
+        # Not found — append one
+        investments_sheet.append_row(["CurrentWeek", week_label])
+
+    retry_with_backoff(write_week)
+    cache.invalidate("investments_data")
+    flash(f"Investment current week set to {week_label}.", "success")
+    return redirect(url_for("federal_reserve"))
+
+
+@app.route("/debug/investments")
+@role_required("Banker")
+def debug_investments():
+    """Temporary debug route — shows raw Investments sheet rows and parsed output."""
+    if investments_sheet is None:
+        return jsonify({"error": "investments_sheet is None — tab not found"})
+    try:
+        raw = investments_sheet.get_all_values()
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+    cache.invalidate("investments_data")  # force fresh parse
+    parsed = get_investments_data()
+
+    return jsonify({
+        "raw_row_count": len(raw),
+        "row1_weeks":          raw[0] if len(raw) > 0 else [],
+        "row2_inflation":      raw[1] if len(raw) > 1 else [],
+        "row3_first_company":  raw[2] if len(raw) > 2 else [],
+        "row4_second_company": raw[3] if len(raw) > 3 else [],
+        "parsed_company_count": len(parsed["companies"]),
+        "parsed_companies": parsed["companies"],
+        "current_week": parsed["currentWeek"],
+        "inflation": parsed["inflation"],
+    })
 
 
 if __name__ == "__main__":

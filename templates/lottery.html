@@ -1,0 +1,1552 @@
+<!DOCTYPE html>
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Community Involvement Prize</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --brand: #24bff0;
+      --bg: #11191c;
+      --bg2: #1a2c32;
+      --bg3: #182429;
+      --text: #d7e6eb;
+      --text-muted: #9db6bd;
+      --input-bg: #243238;
+      --border: #2e4b52;
+      --rounded: 14px;
+    }
+
+    .light-mode {
+      --bg: #e7eef2;
+      --bg2: #f5f8fa;
+      --bg3: #ffffff;
+      --text: #1b1f21;
+      --text-muted: #556166;
+      --input-bg: #ecf1f3;
+      --border: #c7d2d6;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: "Inter", system-ui;
+      background: var(--bg);
+      color: var(--text);
+      overflow-y: auto;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse 700px 300px at 20% 0%, rgba(255,200,50,0.07), transparent 60%),
+        radial-gradient(ellipse 600px 300px at 80% 100%, rgba(36,191,240,0.09), transparent 60%),
+        linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+    }
+
+    /* ── Page Title ── */
+    .page-title-bar {
+      text-align: center;
+      padding: 40px 20px 0;
+    }
+
+    .title-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,196,36,0.12);
+      border: 1px solid rgba(255,196,36,0.3);
+      color: #f5c842;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 6px 16px;
+      border-radius: 50px;
+      margin-bottom: 14px;
+    }
+
+    .page-title-bar h1 {
+      margin: 0 0 10px;
+      font-family: 'Playfair Display', 'Inter', serif;
+      font-size: clamp(28px, 4vw, 50px);
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, var(--text) 30%, #f5c842 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .page-title-bar .subtitle {
+      color: var(--text-muted);
+      font-size: 15px;
+      margin: 0;
+    }
+
+    /* ── Three-column layout ── */
+    .layout {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      flex: 1;
+      padding: 32px 24px 60px;
+    }
+
+    /* Side banners */
+    .side-banner {
+      flex: 1;
+      max-width: 280px;
+      height: 460px;
+      background: transparent;
+      border: none;
+      border-radius: var(--rounded);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .ad-space {
+      width: 100%;
+      height: 100%;
+      background: var(--bg3);
+      border: 2px dashed var(--border);
+      border-radius: var(--rounded);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 14px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .ad-space.ad-loaded {
+      border: none;
+      background: transparent;
+      display: block;
+      padding: 0;
+    }
+
+    /* Center content */
+    .center-col {
+      flex: 3;
+      max-width: 640px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+
+    /* Pig container */
+    .pig-wrapper {
+      position: relative;
+      display: inline-block;
+      margin-bottom: 24px;
+    }
+
+    /* floating sparkles */
+    .sparkle {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+      animation: floatSpark 3s ease-in-out infinite;
+    }
+    .sparkle-1 { width:10px; height:10px; background:#f5c842; top:-10px; left:15%; opacity:0.7; animation-delay:0s; }
+    .sparkle-2 { width:7px;  height:7px;  background:#24bff0; top:10%;  right:8%;  opacity:0.6; animation-delay:0.8s; }
+    .sparkle-3 { width:12px; height:12px; background:#f5c842; bottom:20%; left:-12px; opacity:0.5; animation-delay:1.5s; }
+    .sparkle-4 { width:6px;  height:6px;  background:#24bff0; bottom:10%; right:5%;  opacity:0.65; animation-delay:2.1s; }
+
+    @keyframes floatSpark {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50%       { transform: translateY(-10px) scale(1.2); }
+    }
+
+    .pig-img {
+      display: block;
+      max-width: 500px;
+      width: 100%;
+      height: auto;
+      filter: drop-shadow(0 16px 40px rgba(0,0,0,0.45));
+    }
+
+    /* trophy badge */
+    .mystery-badge {
+      position: absolute;
+      top: -14px;
+      right: -14px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f5c842, #e8a800);
+      border: 3px solid rgba(255,255,255,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 18px rgba(245,200,66,0.45);
+      font-size: 26px;
+      text-decoration: none;
+      z-index: 5;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .mystery-badge:hover {
+      box-shadow: 0 6px 26px rgba(245,200,66,0.65);
+    }
+
+    /* Prize info strip */
+    .prize-info-strip {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .prize-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 50px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .prize-chip .chip-icon {
+      font-size: 16px;
+    }
+
+    /* Prize teaser text */
+    .prize-teaser {
+      font-size: 15px;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 28px;
+      line-height: 1.6;
+      max-width: 420px;
+    }
+
+    /* Get Involved button */
+    .get-involved-btn {
+      padding: 15px 52px;
+      border-radius: 50px;
+      border: none;
+      background: linear-gradient(135deg, #f5c842, #e8a800);
+      color: #1a1000;
+      font-size: 17px;
+      font-weight: 800;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      text-decoration: none;
+      display: inline-block;
+      box-shadow: 0 8px 24px rgba(245,200,66,0.35);
+      transition: box-shadow 0.25s ease, transform 0.25s ease;
+    }
+
+    .get-involved-btn:hover {
+      box-shadow: 0 12px 32px rgba(245,200,66,0.55);
+      transform: translateY(-2px);
+    }
+
+    /* Prize reveal modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+    }
+
+    .modal-box {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 40px 48px;
+      max-width: 500px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      animation: popIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+
+    @keyframes popIn {
+      from { transform: scale(0.7); opacity: 0; }
+      to   { transform: scale(1);   opacity: 1; }
+    }
+
+    .modal-trophy {
+      font-size: 52px;
+      margin-bottom: 8px;
+    }
+
+    .modal-box h2 {
+      margin: 0 0 12px;
+      font-size: 24px;
+      font-weight: 800;
+    }
+
+    .modal-box p {
+      color: var(--text-muted);
+      font-size: 15px;
+      line-height: 1.6;
+      margin: 0 0 28px;
+    }
+
+    .modal-close-btn {
+      padding: 12px 36px;
+      border-radius: 50px;
+      border: none;
+      background: linear-gradient(135deg, var(--brand), #1bb1e9);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .modal-close-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(36,191,240,0.4);
+    }
+
+    /* Theme toggle */
+    .theme-toggle-corner {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1600;
+    }
+
+    .theme-toggle-corner:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+    }
+
+    .theme-icon { width: 24px; height: 24px; transition: 0.3s; }
+    .sun-icon  { display: block; }
+    .moon-icon { display: none; }
+    .light-mode .sun-icon  { display: none; }
+    .light-mode .moon-icon { display: block; }
+
+    /* Back button */
+    .back-btn {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1600;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .back-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+      border-color: var(--brand);
+      background: rgba(36,191,240,0.1);
+    }
+
+    /* Flash messages */
+    .flash-messages {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 3000;
+      max-width: 400px;
+    }
+
+    .flash-message {
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+      animation: slideIn 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 500;
+    }
+
+    .flash-message.success { background: rgba(34,197,94,0.95);  color:#fff; border:1px solid rgba(34,197,94,1); }
+    .flash-message.error   { background: rgba(239,68,68,0.95);  color:#fff; border:1px solid rgba(239,68,68,1); }
+    .flash-message.info    { background: rgba(36,191,240,0.95); color:#fff; border:1px solid rgba(36,191,240,1); }
+
+    @keyframes slideIn {
+      from { transform: translateX(400px); opacity: 0; }
+      to   { transform: translateX(0);     opacity: 1; }
+    }
+
+    @keyframes fadeOut {
+      to { opacity: 0; transform: translateX(400px); }
+    }
+
+    @media (max-width: 900px) {
+      .side-banner { display: none; }
+    }
+
+    /* ── Jackpot banner ── */
+    .jackpot-banner {
+      width: 100%;
+      background: linear-gradient(135deg, rgba(245,200,66,0.12), rgba(36,191,240,0.08));
+      border: 1px solid rgba(245,200,66,0.3);
+      border-radius: var(--rounded);
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .jackpot-main {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .jackpot-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #f5c842;
+      margin-bottom: 4px;
+    }
+
+    .jackpot-amount {
+      font-family: 'Playfair Display', serif;
+      font-size: 32px;
+      font-weight: 800;
+      color: #f5c842;
+      line-height: 1;
+    }
+
+    .pool-chips {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .pool-chip {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--text-muted);
+      min-width: 80px;
+    }
+
+    .pool-chip-val {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-top: 2px;
+    }
+
+    /* ── Purchase card ── */
+    .purchase-card {
+      width: 100%;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--rounded);
+      padding: 28px;
+      margin-bottom: 28px;
+    }
+
+    .purchase-card h3 {
+      margin: 0 0 18px;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    /* Package grid */
+    .package-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .pkg-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      background: var(--input-bg);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 8px;
+      cursor: pointer;
+      transition: 0.2s;
+      color: var(--text);
+      font-family: inherit;
+    }
+
+    .pkg-btn:hover {
+      border-color: #f5c842;
+      background: rgba(245,200,66,0.07);
+    }
+
+    .pkg-btn.selected {
+      border-color: #f5c842;
+      background: rgba(245,200,66,0.13);
+      box-shadow: 0 0 0 3px rgba(245,200,66,0.15);
+    }
+
+    .pkg-tickets {
+      font-size: 18px;
+      font-weight: 800;
+      color: #f5c842;
+    }
+
+    .pkg-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .pkg-price {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    /* Custom qty */
+    .custom-qty-row {
+      display: none;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .custom-qty-row.visible { display: flex; }
+
+    .custom-qty-row input {
+      flex: 1;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 15px;
+    }
+
+    .custom-qty-row input:focus {
+      outline: none;
+      border-color: #f5c842;
+    }
+
+    /* Number picker */
+    .pick-mode-toggle {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .pick-mode-btn {
+      flex: 1;
+      padding: 9px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .pick-mode-btn.active {
+      border-color: var(--brand);
+      background: rgba(36,191,240,0.12);
+      color: var(--brand);
+    }
+
+    .manual-picker {
+      display: none;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .manual-picker.visible { display: flex; }
+
+    .num-field {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .num-field label {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+    }
+
+    .num-field input {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 20px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .num-field input:focus { outline: none; border-color: #f5c842; }
+
+    .num-field .hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* Vex ball */
+    .vex-label {
+      color: #24bff0 !important;
+    }
+
+    .vex-input:focus { border-color: #24bff0 !important; }
+
+    /* Summary row */
+    .purchase-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--input-bg);
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      color: var(--text-muted);
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .purchase-summary .total-price {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    /* Buy button */
+    .buy-btn {
+      width: 100%;
+      padding: 15px;
+      border-radius: 50px;
+      border: none;
+      background: linear-gradient(135deg, #f5c842, #e8a800);
+      color: #1a1000;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      box-shadow: 0 8px 24px rgba(245,200,66,0.35);
+      transition: 0.25s;
+    }
+
+    .buy-btn:hover {
+      box-shadow: 0 12px 32px rgba(245,200,66,0.55);
+      transform: translateY(-2px);
+    }
+
+    .buy-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* ── Buy Modal ── */
+    .buy-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: 2500;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .buy-modal-overlay.open { display: flex; }
+
+    .buy-modal-box {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px 36px 28px;
+      max-width: 560px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      animation: popIn 0.28s cubic-bezier(0.34,1.56,0.64,1);
+      position: relative;
+    }
+
+    .buy-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 22px;
+    }
+
+    .buy-modal-header h3 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 800;
+    }
+
+    .buy-modal-close {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--text-muted);
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: 0.2s;
+      line-height: 1;
+    }
+
+    .buy-modal-close:hover {
+      border-color: var(--brand);
+      color: var(--text);
+    }
+
+    /* ── Per-ticket inputs ── */
+    .per-ticket-section {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 260px;
+      overflow-y: auto;
+      margin-bottom: 18px;
+      padding-right: 4px;
+    }
+
+    .per-ticket-section.visible { display: flex; }
+
+    .per-ticket-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 12px;
+    }
+
+    .pt-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      min-width: 52px;
+    }
+
+    .pt-input {
+      flex: 0 0 48px;
+      width: 48px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .pt-input:focus { outline: none; border-color: #f5c842; }
+    .pt-input.vex-input:focus { border-color: #24bff0; }
+
+    .pt-sep {
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .pt-hint {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    /* ── Available Balance + Investments ──
+    .balance-invest-section {
+      width: 100%;
+    }
+
+    .balance-header {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--rounded) var(--rounded) 0 0;
+      padding: 18px 24px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .balance-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .balance-amount {
+      font-size: 30px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .balance-amount .bal-dollar {
+      font-size: 16px;
+      color: var(--text-muted);
+      font-weight: 600;
+      vertical-align: top;
+      line-height: 2.1;
+    }
+
+    .balance-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(36,191,240,0.1);
+      border: 1px solid rgba(36,191,240,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+
+    /* Tab bar */
+    .invest-tab-bar {
+      display: flex;
+      background: var(--bg2);
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      gap: 4px;
+    }
+
+    .invest-tab-btn {
+      padding: 11px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+      margin-bottom: -1px;
+      white-space: nowrap;
+    }
+
+    .invest-tab-btn.active {
+      color: var(--brand);
+      border-bottom-color: var(--brand);
+    }
+
+    .invest-tab-btn:hover:not(.active) {
+      color: var(--text);
+    }
+
+    /* Tab panels */
+    .invest-tab-panel {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 var(--rounded) var(--rounded);
+      padding: 20px 20px;
+      display: none;
+    }
+
+    .invest-tab-panel.active {
+      display: block;
+    }
+
+    /* Investment summary chips */
+    .invest-summary-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .invest-chip {
+      display: flex;
+      flex-direction: column;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 16px;
+      min-width: 100px;
+    }
+
+    .invest-chip .ic-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .invest-chip .ic-value {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    /* ── My Tickets ── */
+    .tickets-section {
+      width: 100%;
+    }
+
+    .tickets-section h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0 0 14px;
+    }
+
+    .tickets-empty {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 14px;
+      padding: 24px;
+      background: var(--bg3);
+      border: 1px dashed var(--border);
+      border-radius: var(--rounded);
+    }
+
+    .ticket-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 340px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .ticket-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+    }
+
+    .ticket-id {
+      font-family: monospace;
+      color: var(--text-muted);
+      font-size: 11px;
+      min-width: 90px;
+    }
+
+    .ticket-nums {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ball {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .ball-main {
+      background: linear-gradient(135deg, #f5c842, #e8a800);
+      color: #1a1000;
+    }
+
+    .ball-vex {
+      background: linear-gradient(135deg, #24bff0, #1498cc);
+      color: #fff;
+    }
+
+    .ball-sep {
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .ticket-date {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+
+    .ticket-badge {
+      background: rgba(34,197,94,0.15);
+      border: 1px solid rgba(34,197,94,0.4);
+      color: #22c55e;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+      text-transform: uppercase;
+    }
+
+    /* Smaller balls inside the ticket list */
+    .ticket-item .ball {
+      width: 28px;
+      height: 28px;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Flash Messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages">
+        {% for category, message in messages %}
+          <div class="flash-message {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Theme Toggle -->
+  <button class="theme-toggle-corner" id="theme-toggle" aria-label="Toggle theme">
+    <svg class="theme-icon sun-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#fbbf24;">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/>
+    </svg>
+    <svg class="theme-icon moon-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#60a5fa;">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  </button>
+
+  <!-- Back Button -->
+  <a href="{{ url_for('account') }}" class="back-btn" aria-label="Back to account">
+    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path d="M19 12H5M12 19l-7-7 7-7"/>
+    </svg>
+  </a>
+
+  <!-- Page Title -->
+  <div class="page-title-bar">
+    <div class="title-eyebrow">🎟️ Community Prize</div>
+    <h1>Community Involvement Prize</h1>
+    <p class="subtitle">Buy tickets to support your community — and get a chance to win a prize!</p>
+  </div>
+
+  <!-- Three-column layout -->
+  <div class="layout">
+
+    <!-- Left Ad Banner -->
+    <div class="side-banner">
+      <div class="ad-space ad-player-container" data-page="lottery"></div>
+    </div>
+
+    <!-- Center Content -->
+    <div class="center-col">
+      <div class="pig-wrapper">
+        <span class="sparkle sparkle-1"></span>
+        <span class="sparkle sparkle-2"></span>
+        <span class="sparkle sparkle-3"></span>
+        <span class="sparkle sparkle-4"></span>
+        <img
+          class="pig-img"
+          src="/images/PeakerPiggy.png"
+          alt="Community Involvement Prize Pig"
+        >
+        <button class="mystery-badge" id="mystery-btn" title="How does it work?" style="font-size:26px;font-weight:900;color:#1a1000;">?</button>
+      </div>
+
+      <!-- Jackpot Display -->
+      <div class="jackpot-banner" style="justify-content:center;">
+        <div class="jackpot-main" style="align-items:center;">
+          <div class="jackpot-label">🏆 Current Jackpot</div>
+          <div class="jackpot-amount" id="jackpot-display">${{ "%.2f"|format(pools.prize) }}</div>
+        </div>
+      </div>
+
+      <!-- Buy Tickets Button -->
+      <button class="get-involved-btn" id="open-buy-modal" style="margin-bottom:32px;">🎟️ Buy Tickets</button>
+
+      <!-- My Tickets -->
+      <div class="tickets-section" style="width:100%;">
+        <h3 style="font-size:16px;font-weight:700;margin:0 0 14px;">🎫 My Tickets ({{ user_tickets|length }})</h3>
+        {% if user_tickets %}
+          <div class="ticket-list">
+            {% for t in user_tickets %}
+            <div class="ticket-item">
+              <span class="ticket-id">{{ t.TicketID }}</span>
+              <div class="ticket-nums">
+                {% set numstr = t.Number1|string %}
+                {% if ',' in numstr %}
+                  {% for n in numstr.split(',') %}
+                    <span class="ball ball-main">{{ n.strip() }}</span>
+                  {% endfor %}
+                {% else %}
+                  <span class="ball ball-main">{{ numstr }}</span>
+                {% endif %}
+                <span class="ball-sep">+</span>
+                <span class="ball ball-vex">{{ t.VexBall }}</span>
+              </div>
+              <span class="ticket-date">{{ t.PurchaseDate[:10] if t.PurchaseDate else '' }}</span>
+              <span class="ticket-badge">{{ t.Drawing }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="tickets-empty">No tickets yet — buy your first ones above!</div>
+        {% endif %}
+      </div>
+
+    </div>
+
+    <!-- Right Ad Banner -->
+    <div class="side-banner">
+      <div class="ad-space ad-player-container" data-page="lottery"></div>
+    </div>
+
+  </div>
+
+  <!-- Buy Tickets Modal -->
+  <div class="buy-modal-overlay" id="buyModal">
+    <div class="buy-modal-box">
+      <div class="buy-modal-header">
+        <h3>🎟️ Buy Tickets — $2 each</h3>
+        <button class="buy-modal-close" id="close-buy-modal" aria-label="Close">✕</button>
+      </div>
+
+      <form method="POST" action="{{ url_for('lottery_buy') }}" id="buy-form">
+        <input type="hidden" name="quantity" id="qty-input" value="1">
+        <input type="hidden" name="pick_mode" id="pick-mode-input" value="auto">
+        <input type="hidden" name="tickets_json" id="tickets-json" value="">
+
+        <!-- Package selection -->
+        <div class="package-grid">
+          <button type="button" class="pkg-btn selected" data-qty="1">
+            <span class="pkg-tickets">1</span>
+            <span class="pkg-label">Ticket</span>
+            <span class="pkg-price">$2</span>
+          </button>
+          <button type="button" class="pkg-btn" data-qty="10">
+            <span class="pkg-tickets">10</span>
+            <span class="pkg-label">Tickets</span>
+            <span class="pkg-price">$20</span>
+          </button>
+          <button type="button" class="pkg-btn" data-qty="100">
+            <span class="pkg-tickets">100</span>
+            <span class="pkg-label">Tickets</span>
+            <span class="pkg-price">$200</span>
+          </button>
+          <button type="button" class="pkg-btn" data-qty="custom">
+            <span class="pkg-tickets">✏️</span>
+            <span class="pkg-label">Custom</span>
+            <span class="pkg-price">—</span>
+          </button>
+        </div>
+
+        <!-- Custom qty input -->
+        <div class="custom-qty-row" id="custom-qty-row">
+          <input type="number" id="custom-qty" placeholder="Enter ticket count (max 1000)" min="1" max="1000">
+        </div>
+
+        <!-- Number pick mode -->
+        <div class="pick-mode-toggle">
+          <button type="button" class="pick-mode-btn active" id="btn-auto"
+                  onclick="setPickMode('auto')">⚡ Auto-Generate</button>
+          <button type="button" class="pick-mode-btn" id="btn-manual"
+                  onclick="setPickMode('manual')">✏️ Pick Numbers</button>
+        </div>
+
+        <!-- Per-ticket number inputs (manual mode) -->
+        <div class="per-ticket-section" id="per-ticket-section"></div>
+
+        <!-- Summary -->
+        <div class="purchase-summary">
+          <span id="summary-text">1 ticket × $2.00</span>
+          <span class="total-price" id="summary-total">Total: $2.00</span>
+        </div>
+
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;text-align:right;">
+          Your balance: <strong>${{ "%.2f"|format(user_balance) }}</strong>
+        </p>
+
+        <button class="buy-btn" type="submit" id="buy-btn">Buy Tickets</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Info Modal -->
+  <div class="modal-overlay" id="prizeModal">
+    <div class="modal-box">
+      <div class="modal-trophy">❓</div>
+      <h2>How It Works</h2>
+      <p>
+        Each ticket costs <strong>$2</strong>. Pick <strong>4 unique numbers (1–8)</strong> and a <strong>Vex Ball (1–10)</strong>.
+        <br><br>
+        <strong>Prizes:</strong><br>
+        🔵 Vex Ball only → <strong>$2 refund</strong><br>
+        🟡 All 4 numbers (any order, no Vex Ball) → <strong>$50</strong><br>
+        🌟 All 4 numbers (any order) + Vex Ball → <strong>Jackpot</strong>
+        <br><br>
+        <strong>Jackpot Odds:</strong> 1 in 700<br>
+        <span style="font-size:12px;color:var(--text-muted);">C(8,4) × 10 = 70 × 10 = 700 possible combinations</span>
+        <br><br>
+        <strong>Ticket revenue split:</strong><br>
+        🏆 70% → Prize Fund (jackpot)<br>
+        💼 20% → Employment Fund<br>
+        🏦 10% → Reserve Fund<br>
+        <br>
+        The more tickets you buy, the bigger the community involvement prize and the better your chances!
+      </p>
+      <button class="modal-close-btn" onclick="document.getElementById('prizeModal').classList.remove('open')">Got it!</button>
+    </div>
+  </div>
+
+  <script>
+    // Flash auto-dismiss
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('.flash-message').forEach((msg, i) => {
+        setTimeout(() => {
+          msg.style.animation = 'fadeOut 0.3s ease forwards';
+          setTimeout(() => msg.remove(), 300);
+        }, 3000 + i * 500);
+      });
+    });
+
+    // Theme toggle
+    const toggleBtn = document.getElementById('theme-toggle');
+    const root = document.getElementById('html-root');
+
+    function applyTheme(theme) {
+      root.classList.toggle('light-mode', theme === 'light');
+      root.classList.toggle('dark-mode', theme !== 'light');
+      void root.offsetWidth;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => applyTheme("{{ session.get('theme', 'dark') }}"));
+
+    toggleBtn.addEventListener('click', async () => {
+      const r = await fetch('/toggle-theme', { method: 'POST' });
+      if (r.ok) { const d = await r.json(); applyTheme(d.theme); }
+    });
+
+    // ── Info modal (? badge) ─────────────────────────────────
+    document.getElementById('mystery-btn').addEventListener('click', () => {
+      document.getElementById('prizeModal').classList.add('open');
+    });
+    document.getElementById('prizeModal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.remove('open');
+    });
+
+    // ── Buy modal ───────────────────────────────────────────────
+    const buyModal = document.getElementById('buyModal');
+
+    document.getElementById('open-buy-modal').addEventListener('click', () => {
+      buyModal.classList.add('open');
+    });
+    document.getElementById('close-buy-modal').addEventListener('click', () => {
+      buyModal.classList.remove('open');
+    });
+    buyModal.addEventListener('click', function(e) {
+      if (e.target === this) this.classList.remove('open');
+    });
+
+    // ── Ticket purchase logic ────────────────────────────────────
+    let selectedQty = 1;
+    const PRICE_PER = 2;
+    let currentPickMode = 'auto';
+
+    function updateSummary() {
+      const q = selectedQty;
+      const total = (q * PRICE_PER).toFixed(2);
+      document.getElementById('summary-text').textContent = `${q} ticket${q !== 1 ? 's' : ''} × $${PRICE_PER}.00`;
+      document.getElementById('summary-total').textContent = `Total: $${total}`;
+    }
+
+    // Build per-ticket rows in the per-ticket-section container
+    function buildPerTicketRows() {
+      const section = document.getElementById('per-ticket-section');
+      section.innerHTML = '';
+      for (let i = 0; i < selectedQty; i++) {
+        const row = document.createElement('div');
+        row.className = 'per-ticket-row';
+        row.innerHTML = `
+          <span class="pt-label" style="min-width:44px;">🎟️ ${i + 1}</span>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+            <div style="display:flex;gap:4px;">
+              <input type="number" class="pt-input pt-n1" min="1" max="8" placeholder="1–8">
+              <input type="number" class="pt-input pt-n2" min="1" max="8" placeholder="1–8">
+              <input type="number" class="pt-input pt-n3" min="1" max="8" placeholder="1–8">
+              <input type="number" class="pt-input pt-n4" min="1" max="8" placeholder="1–8">
+            </div>
+            <span style="font-size:9px;color:#f5c842;font-weight:700;letter-spacing:.5px;">4 UNIQUE NUMBERS (1–8)</span>
+          </div>
+          <span class="pt-sep" style="margin:0 4px;">+</span>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+            <input type="number" class="pt-input pt-vex vex-input" min="1" max="10" placeholder="1–10">
+            <span style="font-size:9px;color:#24bff0;font-weight:700;letter-spacing:.5px;">VEX</span>
+          </div>
+        `;
+        section.appendChild(row);
+      }
+    }
+
+    // Package buttons
+    document.querySelectorAll('.pkg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.pkg-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        const qty = btn.dataset.qty;
+        const customRow = document.getElementById('custom-qty-row');
+        if (qty === 'custom') {
+          customRow.classList.add('visible');
+          document.getElementById('custom-qty').focus();
+          const parsed = parseInt(document.getElementById('custom-qty').value, 10);
+          selectedQty = (parsed > 0 && parsed <= 1000) ? parsed : 1;
+        } else {
+          customRow.classList.remove('visible');
+          selectedQty = parseInt(qty, 10);
+        }
+        document.getElementById('qty-input').value = selectedQty;
+        if (currentPickMode === 'manual') buildPerTicketRows();
+        updateSummary();
+      });
+    });
+
+    document.getElementById('custom-qty').addEventListener('input', function() {
+      const v = parseInt(this.value, 10);
+      if (v > 0 && v <= 1000) {
+        selectedQty = v;
+        document.getElementById('qty-input').value = v;
+        if (currentPickMode === 'manual') buildPerTicketRows();
+        updateSummary();
+      }
+    });
+
+    function setPickMode(mode) {
+      currentPickMode = mode;
+      document.getElementById('pick-mode-input').value = mode;
+      document.getElementById('btn-auto').classList.toggle('active', mode === 'auto');
+      document.getElementById('btn-manual').classList.toggle('active', mode === 'manual');
+      const section = document.getElementById('per-ticket-section');
+      if (mode === 'manual') {
+        buildPerTicketRows();
+        section.classList.add('visible');
+      } else {
+        section.classList.remove('visible');
+        section.innerHTML = '';
+      }
+    }
+
+    // Form submit — validation + serialize per-ticket numbers
+    document.getElementById('buy-form').addEventListener('submit', function(e) {
+      const qty = parseInt(document.getElementById('qty-input').value, 10);
+      if (!(qty >= 1 && qty <= 1000)) {
+        e.preventDefault();
+        alert('Please select a valid ticket quantity (1–1000).');
+        return;
+      }
+
+      if (currentPickMode === 'manual') {
+        const rows = document.querySelectorAll('#per-ticket-section .per-ticket-row');
+        const tickets = [];
+        let valid = true;
+        rows.forEach((row, idx) => {
+          const nums = [
+            parseInt(row.querySelector('.pt-n1').value, 10),
+            parseInt(row.querySelector('.pt-n2').value, 10),
+            parseInt(row.querySelector('.pt-n3').value, 10),
+            parseInt(row.querySelector('.pt-n4').value, 10),
+          ];
+          const vex = parseInt(row.querySelector('.pt-vex').value, 10);
+          for (let j = 0; j < nums.length; j++) {
+            if (!(nums[j] >= 1 && nums[j] <= 8)) {
+              alert(`Ticket ${idx + 1}: All 4 numbers must be between 1 and 8.`);
+              valid = false; return;
+            }
+          }
+          const unique = new Set(nums);
+          if (unique.size !== 4) {
+            alert(`Ticket ${idx + 1}: All 4 numbers must be unique.`);
+            valid = false; return;
+          }
+          if (!(vex >= 1 && vex <= 10)) {
+            alert(`Ticket ${idx + 1}: Vex Ball must be between 1 and 10.`);
+            valid = false; return;
+          }
+          tickets.push([...nums, vex]);
+        });
+        if (!valid) { e.preventDefault(); return; }
+        document.getElementById('tickets-json').value = JSON.stringify(tickets);
+      }
+
+      document.getElementById('buy-btn').disabled = true;
+      document.getElementById('buy-btn').textContent = 'Processing...';
+    });
+
+    // Initialise
+    updateSummary();
+
+    // ── Ad Player ────────────────────────────────────────────
+    (function () {
+      function initAdPlayers() {
+        document.querySelectorAll('.ad-player-container').forEach(function (container) {
+          var page = container.dataset.page;
+          if (page) loadAds(container, page);
+        });
+      }
+
+      async function loadAds(container, page) {
+        var today = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+        try {
+          var resp = await fetch('/api/ads?page=' + encodeURIComponent(page));
+          if (!resp.ok) throw new Error();
+          var allAds = await resp.json();
+          var ads = allAds.filter(function (ad) {
+            var sched = (ad.Schedule || '').trim();
+            if (!sched) return true;
+            return sched.split(',').map(function(s){ return s.trim(); }).includes(today);
+          });
+          if (ads.length === 0) { renderFallback(container); return; }
+          container.classList.add('ad-loaded');
+          if (ads.length === 1) { renderStatic(container, ads[0]); }
+          else { renderSlideshow(container, ads); }
+        } catch (e) {
+          renderFallback(container);
+        }
+      }
+
+      function renderFallback(c) {
+        c.innerHTML = '<span style="color:var(--text-muted);font-size:14px;">Ad Space</span>';
+      }
+
+      function renderStatic(c, ad) { c.innerHTML = adHTML(ad); }
+
+      function renderSlideshow(c, ads) {
+        var interval = parseInt(ads[0].Interval || 5) * 1000;
+        var current = 0;
+        c.innerHTML = ads.map(function (ad, i) {
+          return '<div class="_ad-sl" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:' +
+            (i === 0 ? 1 : 0) + ';transition:opacity 0.6s ease;pointer-events:' +
+            (i === 0 ? 'auto' : 'none') + ';">' + adHTML(ad) + '</div>';
+        }).join('');
+
+        var dots = document.createElement('div');
+        dots.style.cssText = 'position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10;';
+        ads.forEach(function (_, i) {
+          var d = document.createElement('div');
+          d.style.cssText = 'width:' + (i===0?'20px':'8px') + ';height:8px;border-radius:4px;background:rgba(255,255,255,' + (i===0?'0.9':'0.4') + ');cursor:pointer;transition:.3s;';
+          d.onclick = function(){ jump(i); };
+          dots.appendChild(d);
+        });
+        c.appendChild(dots);
+
+        var slides = c.querySelectorAll('._ad-sl');
+        function jump(idx) {
+          slides[current].style.opacity = '0';
+          slides[current].style.pointerEvents = 'none';
+          dots.children[current].style.width = '8px';
+          dots.children[current].style.background = 'rgba(255,255,255,0.4)';
+          current = idx;
+          slides[current].style.opacity = '1';
+          slides[current].style.pointerEvents = 'auto';
+          dots.children[current].style.width = '20px';
+          dots.children[current].style.background = 'rgba(255,255,255,0.9)';
+        }
+        setInterval(function(){ jump((current + 1) % ads.length); }, interval);
+      }
+
+      function adHTML(ad) {
+        var img = '<img src="' + esc(ad.ImageURL) + '" alt="' + esc(ad.Title) +
+          '" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;"' +
+          ' onerror="this.parentElement.innerHTML=\'<span style=color:var(--text-muted)>Ad Space</span>\'">';
+        if (ad.LinkURL) return '<a href="' + esc(ad.LinkURL) + '" target="_blank" rel="noopener" style="display:block;width:100%;height:100%;">' + img + '</a>';
+        return img;
+      }
+
+      function esc(s) {
+        return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAdPlayers);
+      else initAdPlayers();
+    })();
+    // ── End Ad Player ───────────────────────────────────────
+  </script>
+</body>
+</html>

@@ -228,16 +228,16 @@
 
     /* TRANSACTIONS */
     .transaction-box {
-      margin-top:25px;
+      margin-top:15px;
       background:var(--bg2);
-      padding:20px;
+      padding:12px 16px;
       border-radius:var(--rounded);
       border:1px solid var(--border);
       box-shadow:0 6px 20px rgba(0,0,0,0.18);
     }
 
     .history-box {
-      max-height: 350px;
+      max-height: 200px;
       overflow-y:auto;
     }
 
@@ -912,11 +912,21 @@
       </button>
     </div>
 
+    <!-- Slide 3: Stock Floor Banner -->
+    <div class="promo-slide" id="promo-slide-2">
+      <div style="font-size:90px;line-height:1;margin-bottom:12px;">📈</div>
+      <p class="promo-label">Invest your money!<br><strong>The Stock Floor is open.</strong></p>
+      <button class="right-loan-btn" style="background:linear-gradient(135deg,#22c55e,#16a34a);" onclick="window.location.href='/stocks'">
+        📊 Go to Stock Floor
+      </button>
+    </div>
+
   </div>
 
   <div class="promo-dots" id="promoDots">
     <div class="promo-dot active" onclick="jumpPromo(0)"></div>
     <div class="promo-dot" onclick="jumpPromo(1)"></div>
+    <div class="promo-dot" onclick="jumpPromo(2)"></div>
   </div>
 </div>
 

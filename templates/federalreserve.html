@@ -1970,6 +1970,28 @@
               </div>
             </div>
 
+            <!-- Investment Current Week -->
+            <div class="settings-group">
+              <h3>📈 Investment Floor — Current Week</h3>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <span class="setting-name">Active Week</span>
+                  <span class="setting-description">Which week column students see on the Investment Floor (currently: {{ inv_current_week or 'Not set' }})</span>
+                </label>
+                <form method="POST" action="/set_investment_week" style="display:flex; gap:8px; align-items:center;">
+                  <select name="week_label" class="setting-input" style="flex:1;">
+                    {% for w in inv_all_weeks %}
+                      <option value="{{ w }}" {% if w == inv_current_week %}selected{% endif %}>{{ w }}</option>
+                    {% endfor %}
+                    {% if not inv_all_weeks %}
+                      <option value="Week 1">Week 1</option>
+                    {% endif %}
+                  </select>
+                  <button type="submit" class="setting-save-btn">Set</button>
+                </form>
+              </div>
+            </div>
+
             <!-- Currency Exchange Rate (Full Width) -->
             <div class="settings-group">
               <h3>&#8645; Personal &#8594; Company Exchange Rate</h3>
