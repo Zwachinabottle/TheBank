@@ -1069,6 +1069,214 @@
       height: 28px;
       font-size: 11px;
     }
+
+    /* ── Winning Numbers Strip ── */
+    .winner-strip {
+      width: 100%;
+      background: linear-gradient(135deg, rgba(36,191,240,0.10), rgba(245,200,66,0.08));
+      border: 1px solid rgba(36,191,240,0.35);
+      border-radius: var(--rounded);
+      padding: 18px 22px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .winner-strip-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+
+    .winner-eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: var(--brand);
+    }
+
+    .winner-date-chip {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 10px;
+    }
+
+    .winner-balls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .winner-balls .ball {
+      width: 44px;
+      height: 44px;
+      font-size: 17px;
+    }
+
+    .winner-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    /* ── Banker Draw Panel ── */
+    .banker-panel {
+      width: 100%;
+      background: var(--bg3);
+      border: 1.5px dashed rgba(245,200,66,0.45);
+      border-radius: var(--rounded);
+      padding: 22px 24px;
+      margin-bottom: 24px;
+    }
+
+    .banker-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .banker-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(245,200,66,0.12);
+      border: 1px solid rgba(245,200,66,0.35);
+      color: #f5c842;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+    }
+
+    .banker-num-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    .banker-num-field {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .banker-num-field label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .banker-num-input {
+      width: 56px;
+      background: var(--input-bg);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 22px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .banker-num-input:focus {
+      outline: none;
+      border-color: #f5c842;
+    }
+
+    .banker-num-input.vex-input:focus {
+      border-color: #24bff0;
+    }
+
+    .banker-sep {
+      font-size: 20px;
+      color: var(--text-muted);
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .banker-name-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .banker-name-row input {
+      flex: 1;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+    }
+
+    .banker-name-row input:focus {
+      outline: none;
+      border-color: var(--brand);
+    }
+
+    .banker-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .banker-save-btn {
+      flex: 1;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1.5px solid rgba(245,200,66,0.5);
+      background: rgba(245,200,66,0.08);
+      color: #f5c842;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .banker-save-btn:hover {
+      background: rgba(245,200,66,0.18);
+      border-color: #f5c842;
+    }
+
+    .banker-run-btn {
+      flex: 1;
+      padding: 12px;
+      border-radius: 10px;
+      border: none;
+      background: linear-gradient(135deg, #f5c842, #e8a800);
+      color: #1a1000;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(245,200,66,0.3);
+      transition: 0.2s;
+    }
+
+    .banker-run-btn:hover {
+      box-shadow: 0 8px 24px rgba(245,200,66,0.5);
+      transform: translateY(-1px);
+    }
   </style>
 </head>
 <body>
@@ -1140,8 +1348,79 @@
         </div>
       </div>
 
+      <!-- Winning Numbers Display -->
+      {% if winning %}
+      <div class="winner-strip">
+        <div class="winner-strip-header">
+          <span class="winner-eyebrow">🎯 Last Drawing Results</span>
+          <span class="winner-date-chip">{{ winning.draw_name }}{% if winning.draw_date %} &middot; {{ winning.draw_date }}{% endif %}</span>
+        </div>
+        <div class="winner-balls">
+          {% for n in winning.numbers %}
+            <span class="ball ball-main">{{ n }}</span>
+          {% endfor %}
+          <span class="ball-sep" style="font-size:18px;margin:0 2px;">+</span>
+          <span class="ball ball-vex" style="width:44px;height:44px;font-size:17px;">{{ winning.vex }}</span>
+        </div>
+        <div class="winner-name">4 Main Numbers (1–8) &nbsp;+&nbsp; Vex Ball (1–10)</div>
+      </div>
+      {% endif %}
+
+      <!-- Banker Draw Panel -->
+      {% if is_banker %}
+      <div class="banker-panel">
+        <div class="banker-panel-header">
+          <span class="banker-badge">🔑 Banker Controls</span>
+          <span style="font-size:13px;color:var(--text-muted);margin-left:8px;">Set &amp; run the lottery drawing</span>
+        </div>
+        <form method="POST" action="{{ url_for('lottery_draw') }}" id="draw-form">
+          <div class="banker-num-row">
+            <div class="banker-num-field">
+              <label>Ball 1</label>
+              <input type="number" class="banker-num-input" name="n1" min="1" max="8"
+                     value="{% if winning %}{{ winning.numbers[0] }}{% endif %}" required>
+            </div>
+            <div class="banker-num-field">
+              <label>Ball 2</label>
+              <input type="number" class="banker-num-input" name="n2" min="1" max="8"
+                     value="{% if winning %}{{ winning.numbers[1] }}{% endif %}" required>
+            </div>
+            <div class="banker-num-field">
+              <label>Ball 3</label>
+              <input type="number" class="banker-num-input" name="n3" min="1" max="8"
+                     value="{% if winning %}{{ winning.numbers[2] }}{% endif %}" required>
+            </div>
+            <div class="banker-num-field">
+              <label>Ball 4</label>
+              <input type="number" class="banker-num-input" name="n4" min="1" max="8"
+                     value="{% if winning %}{{ winning.numbers[3] }}{% endif %}" required>
+            </div>
+            <span class="banker-sep">+</span>
+            <div class="banker-num-field">
+              <label style="color:#24bff0;">Vex Ball</label>
+              <input type="number" class="banker-num-input vex-input" name="vex" min="1" max="10"
+                     value="{% if winning %}{{ winning.vex }}{% endif %}" required>
+            </div>
+          </div>
+          <div class="banker-name-row">
+            <input type="text" name="draw_name" placeholder="Drawing name (e.g. Week 12)" maxlength="64"
+                   value="{% if winning %}{{ winning.draw_name }}{% endif %}">
+          </div>
+          <div class="banker-actions">
+            <button type="submit" class="banker-save-btn" onclick="document.getElementById('run-flag').value='0'">
+              💾 Save Numbers Only
+            </button>
+            <button type="submit" class="banker-run-btn" onclick="document.getElementById('run-flag').value='1'">
+              🎲 Save &amp; Run Drawing
+            </button>
+          </div>
+          <input type="hidden" name="run_drawing" id="run-flag" value="0">
+        </form>
+      </div>
+      {% endif %}
+
       <!-- Buy Tickets Button -->
-      <button class="get-involved-btn" id="open-buy-modal" style="margin-bottom:32px;">🎟️ Buy Tickets</button>
+      <button class="get-involved-btn" id="open-buy-modal" style="margin-bottom:32px;">🎟️ Get Involved</button>
 
       <!-- My Tickets -->
       <div class="tickets-section" style="width:100%;">

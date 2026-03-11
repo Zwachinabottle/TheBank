@@ -13,28 +13,47 @@ app.secret_key = "your_secret_key_here"
 #https://tinyurl.com/KchingBanking
 # ---------- CACHING SYSTEM ----------
 class SheetCache:
-    """In-memory cache with TTL to minimize Google Sheets API calls"""
-    def __init__(self, ttl=45):
+    """In-memory cache with TTL to minimize Google Sheets API calls.
+
+    Per-key TTL overrides let high-churn data (user balances) expire quickly
+    while structural config (column maps, teacher PIN) stays warm for many
+    minutes — reducing total API calls dramatically.
+
+    TTL constants (seconds):
+        LONG_TTL   = 600   structural / config (headers, teacher PIN)
+        MEDIUM_TTL = 180   shared raw sheet dumps (transactions, loans)
+        SHORT_TTL  = 90    per-user derived views
+        DEFAULT_TTL = 60   general default
+    """
+    LONG_TTL   = 600
+    MEDIUM_TTL = 180
+    SHORT_TTL  = 90
+    DEFAULT_TTL = 60
+
+    def __init__(self, ttl=60):
         self.cache = {}
-        self.ttl = ttl  # Time to live in seconds (45s default)
+        self.ttl = ttl  # instance default TTL in seconds
         self.lock = Lock()
-    
+
     def get(self, key):
-        """Get cached value if not expired"""
+        """Return cached value for *key*, or None if missing/expired."""
         with self.lock:
             if key in self.cache:
-                value, timestamp = self.cache[key]
-                if time.time() - timestamp < self.ttl:
+                value, timestamp, key_ttl = self.cache[key]
+                if time.time() - timestamp < key_ttl:
                     return value
-                else:
-                    # Expired, remove it
-                    del self.cache[key]
+                del self.cache[key]
             return None
-    
-    def set(self, key, value):
-        """Set cached value with current timestamp"""
+
+    def set(self, key, value, ttl=None):
+        """Store *value* under *key*.
+
+        *ttl* overrides the instance default for this entry only.  Use the
+        SheetCache.LONG_TTL / MEDIUM_TTL / SHORT_TTL class constants.
+        """
         with self.lock:
-            self.cache[key] = (value, time.time())
+            effective_ttl = ttl if ttl is not None else self.ttl
+            self.cache[key] = (value, time.time(), effective_ttl)
     
     def invalidate(self, *keys):
         """Invalidate specific cache keys or patterns"""
@@ -54,8 +73,14 @@ class SheetCache:
             for key in keys_to_delete:
                 del self.cache[key]
 
-# Global cache instance (30s TTL — balanced freshness vs API quota)
-cache = SheetCache(ttl=30)
+# Global cache instance — default 60 s per entry; high-churn keys use
+# per-call ttl= overrides (see SheetCache constants above).
+cache = SheetCache()  # ttl=60 default
+
+# In-memory override for the Investment Floor's active week.
+# Set immediately by set_investment_week — no Google Sheets round-trip lag.
+# Falls back to the sheet's CurrentWeek row if empty (e.g. after server restart).
+_investment_week_override: str = ""
 
 # Per-user transfer locks — prevent double-spend race conditions on concurrent requests
 _transfer_locks: dict = {}
@@ -236,7 +261,7 @@ def get_teacher_pin():
         pin = retry_with_backoff(fetch)
     except Exception:
         pin = "4444"
-    cache.set(cache_key, pin)
+    cache.set(cache_key, pin, ttl=SheetCache.LONG_TTL)
     return pin
 
 
@@ -308,7 +333,7 @@ def get_all_users():
         return users_sheet.get_all_records(expected_headers=expected)
     
     users = retry_with_backoff(fetch)
-    cache.set(cache_key, users)
+    cache.set(cache_key, users, ttl=120)  # 2-min freshness for user list
     return users
 
 def get_all_users_with_balances():
@@ -337,8 +362,9 @@ def add_transaction(sender, receiver, amount, comment=""):
     
     retry_with_backoff(append)
     
-    # Invalidate transaction caches for both users
-    cache.invalidate(f"transactions_{sender}", f"transactions_{receiver}")
+    # Invalidate transaction caches for both users (also bust shared raw caches)
+    cache.invalidate(f"transactions_{sender}", f"transactions_{receiver}",
+                     "all_transactions_raw", "all_logs_raw")
 
 def get_user_balance(username):
     """Get user balance with caching"""
@@ -364,6 +390,53 @@ def get_user_balance(username):
     cache.set(cache_key, balance)
     return balance
 
+# ---------- SHARED RAW-DATA HELPERS ----------
+# Each of these fetches the *entire* sheet once and caches it at MEDIUM_TTL
+# (3 min).  Per-user functions (get_user_transactions, get_user_loans, etc.)
+# call these helpers instead of hitting the API themselves, so N concurrent
+# users cause exactly ONE network call per TTL window instead of N.
+
+def get_all_transactions_raw():
+    """Return all rows from the Transactions sheet, shared across callers."""
+    cache_key = "all_transactions_raw"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    def fetch():
+        return transactions_sheet.get_all_records()
+    rows = retry_with_backoff(fetch)
+    cache.set(cache_key, rows, ttl=SheetCache.MEDIUM_TTL)
+    return rows
+
+def get_all_logs_raw():
+    """Return all rows from the Logs sheet, shared across callers."""
+    cache_key = "all_logs_raw"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    def fetch():
+        try:
+            return logs_sheet.get_all_records()
+        except Exception:
+            return []
+    rows = retry_with_backoff(fetch)
+    cache.set(cache_key, rows, ttl=SheetCache.MEDIUM_TTL)
+    return rows
+
+def get_all_loans_raw():
+    """Return all rows from the Loans sheet, shared across callers."""
+    cache_key = "all_loans_raw"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    def fetch():
+        hdrs = _LOANS_HEADERS if _LOANS_HEADERS else None
+        return loans_sheet.get_all_records(expected_headers=hdrs) if hdrs else loans_sheet.get_all_records()
+    rows = retry_with_backoff(fetch)
+    cache.set(cache_key, rows, ttl=SheetCache.MEDIUM_TTL)
+    return rows
+
+
 def get_user_transactions(username):
     """Get user transactions with caching — merges Transactions sheet + teacher adjustments from Logs"""
     cache_key = f"transactions_{username}"
@@ -371,16 +444,9 @@ def get_user_transactions(username):
     if cached is not None:
         return cached
 
-    def fetch_transactions():
-        return transactions_sheet.get_all_records()
-
-    def fetch_logs():
-        try:
-            return logs_sheet.get_all_records()
-        except Exception:
-            return []
-
-    rows = retry_with_backoff(fetch_transactions)
+    # Use shared raw caches — one API call per TTL window regardless of how
+    # many users request their transactions simultaneously.
+    rows = get_all_transactions_raw()
     formatted = []
 
     # Pull from Transactions sheet
@@ -399,7 +465,7 @@ def get_user_transactions(username):
             })
 
     # Also pull teacher adjustments from Logs that reference this student
-    log_rows = retry_with_backoff(fetch_logs)
+    log_rows = get_all_logs_raw()
     for log in log_rows:
         action = log.get("Action", "")
         teacher = log.get("User", "")
@@ -438,7 +504,7 @@ def get_user_transactions(username):
             })
 
     formatted.sort(key=lambda x: x["Date"], reverse=True)
-    cache.set(cache_key, formatted)
+    cache.set(cache_key, formatted, ttl=SheetCache.SHORT_TTL)
     return formatted
 
 
@@ -698,7 +764,7 @@ def get_fed_columns():
         return {name: idx + 1 for idx, name in enumerate(header)}
     
     columns = retry_with_backoff(fetch)
-    cache.set(cache_key, columns)
+    cache.set(cache_key, columns, ttl=SheetCache.LONG_TTL)  # column headers never change at runtime
     return columns
 
 def set_fed_value(label, value):
@@ -733,13 +799,30 @@ def get_federal_reserve_stats():
         return data
     
     stats = retry_with_backoff(fetch)
-    cache.set(cache_key, stats)
+    cache.set(cache_key, stats, ttl=90)  # fed stats: fresh within 90 s
     return stats
 
 
+# Throttle for recalculate_federal_reserve: minimum interval between full
+# recalculations to prevent hammering the API when multiple users reload the
+# Federal Reserve page in quick succession.
+_last_fed_recalc: float = 0.0
+_FED_RECALC_MIN_INTERVAL = 120  # seconds between recalculations
+
 
 def recalculate_federal_reserve():
-    """Recalculate federal reserve stats with proper loan and cash burn tracking"""
+    """Recalculate federal reserve stats with proper loan and cash burn tracking.
+
+    Throttled: if called within _FED_RECALC_MIN_INTERVAL seconds of the last
+    full recalculation the call is silently skipped — the dashboard will still
+    show the cached (recently-fresh) values.
+    """
+    global _last_fed_recalc
+    now = time.time()
+    if now - _last_fed_recalc < _FED_RECALC_MIN_INTERVAL:
+        return  # too soon — skip to save API quota
+    _last_fed_recalc = now
+
     users = get_all_users_with_balances()
     
     # Calculate total money in all accounts
@@ -877,7 +960,7 @@ def get_project_end_date():
         return None
     
     end_date = retry_with_backoff(fetch)
-    cache.set(cache_key, end_date)
+    cache.set(cache_key, end_date, ttl=300)  # project end date changes rarely
     return end_date
 
 def set_project_end_date(date_string):
@@ -993,7 +1076,7 @@ def process_loan_payments():
                 log_action("System", f"Auto-deducted ${weekly_payment} loan payment from {requester} (balance: ${new_balance:.2f}) → Bank: ${new_bank_balance:.2f}", weekly_payment, "Loan Payment")
     
     # Invalidate caches
-    cache.invalidate("all_loans")
+    cache.invalidate("all_loans", "all_loans_raw")
     cache.invalidate_pattern("user_loans_")
     
     return payments_processed
@@ -1129,7 +1212,7 @@ def loan_money(sender, reason, amount, weeks):
         ])
     
     retry_with_backoff(append)
-    cache.invalidate("pending_loans", "all_loans", f"user_loans_{sender}")
+    cache.invalidate("pending_loans", "all_loans", "all_loans_raw", f"user_loans_{sender}")
 
 def approve_loan(loan_row_index):
     """Approve a loan and set up payment schedule"""
@@ -1165,7 +1248,7 @@ def approve_loan(loan_row_index):
                   amount, "Denied - Insufficient Funds")
         # Still deny the loan in the sheet
         loans_sheet.update_cell(loan_row_index, col_index["Status"], "Denied")
-        cache.invalidate("pending_loans", "all_loans", f"user_loans_{requester}")
+        cache.invalidate("pending_loans", "all_loans", "all_loans_raw", f"user_loans_{requester}")
         return
     
     # Deduct from bank's account
@@ -1196,7 +1279,7 @@ def approve_loan(loan_row_index):
               amount, "Approved")
     
     # Invalidate loan caches
-    cache.invalidate("pending_loans", "all_loans", f"user_loans_{requester}")
+    cache.invalidate("pending_loans", "all_loans", "all_loans_raw", f"user_loans_{requester}")
 
 def deny_loan(loan_row_index):
     """Deny a loan application"""
@@ -1217,7 +1300,7 @@ def deny_loan(loan_row_index):
     log_action(session.get("user", "System"), f"Denied loan for {requester}", None, "Denied")
     
     # Invalidate loan caches
-    cache.invalidate("pending_loans", "all_loans", f"user_loans_{requester}")
+    cache.invalidate("pending_loans", "all_loans", "all_loans_raw", f"user_loans_{requester}")
 
 def get_pending_deletions():
     """Get all pending account deletion requests with caching"""
@@ -1341,12 +1424,8 @@ def get_pending_loans():
     if cached is not None:
         return cached
     
-    def fetch():
-        # Use the pre-computed header — avoids a redundant row_values(1) API call
-        hdrs = _LOANS_HEADERS if _LOANS_HEADERS else None
-        return loans_sheet.get_all_records(expected_headers=hdrs) if hdrs else loans_sheet.get_all_records()
-    
-    rows = retry_with_backoff(fetch)
+    # Use shared raw cache — one API call per MEDIUM_TTL window for all callers
+    rows = get_all_loans_raw()
     pending = []
     for idx, loan in enumerate(rows, start=2):
         if loan.get("Status") == "Pending":
@@ -1453,10 +1532,8 @@ def get_user_loans(username):
     if cached is not None:
         return cached
     
-    def fetch():
-        return loans_sheet.get_all_records(expected_headers=loans_sheet.row_values(1))
-    
-    rows = retry_with_backoff(fetch)
+    # Use shared raw cache — avoids a per-user API call
+    rows = get_all_loans_raw()
     user_loans = []
     today = datetime.now().date()
     
@@ -1510,7 +1587,7 @@ def get_user_loans(username):
             
             user_loans.append(loan_data)
     
-    cache.set(cache_key, user_loans)
+    cache.set(cache_key, user_loans, ttl=SheetCache.SHORT_TTL)
     return user_loans
 
 def get_all_loans():
@@ -1520,12 +1597,8 @@ def get_all_loans():
     if cached is not None:
         return cached
     
-    def fetch():
-        # Use the pre-computed header — avoids a redundant row_values(1) API call
-        hdrs = _LOANS_HEADERS if _LOANS_HEADERS else None
-        return loans_sheet.get_all_records(expected_headers=hdrs) if hdrs else loans_sheet.get_all_records()
-    
-    rows = retry_with_backoff(fetch)
+    # Use shared raw cache — same loan data re-used by pending/user/all queries
+    rows = get_all_loans_raw()
     loans = []
     today = datetime.now().date()
     
@@ -1584,7 +1657,7 @@ def get_all_loans():
         0 if x["Status"] == "Active" else (1 if x["Status"] == "Pending" else 2),
         x["Date"]
     ), reverse=True)
-    cache.set(cache_key, loans)
+    cache.set(cache_key, loans, ttl=120)
     return loans
 
 
@@ -1607,6 +1680,7 @@ def get_investments_data():
       Row 2  → inflation rates      (col A = "Inflation", col B+ = values)
       Rows 3+ → companies           (col A = company name, col B+ = net worth per week)
     """
+    global _investment_week_override
     cache_key = "investments_data"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -1632,33 +1706,49 @@ def get_investments_data():
 
     company_rows = raw[2:] if len(raw) > 2 else []
 
-    # Determine current week: look for a row where col A contains "CurrentWeek" (case-insensitive)
-    # and read the week number from col B. Fall back to rightmost filled week.
+    # Determine current week column:
+    # 1. In-memory override (set_investment_week stores it here instantly — no API lag)
+    # 2. CurrentWeek row in the sheet (survives server restarts)
+    # 3. Fallback: rightmost labelled week column
     current_col = 1
-    for row in raw:
-        if row and str(row[0]).strip().lower().replace(" ", "") == "currentweek":
-            stored = str(row[1]).strip() if len(row) > 1 else ""
-            # Match stored value against week labels (robust — works regardless of gaps)
-            matched = False
-            for i in range(1, len(weeks_row)):
-                if str(weeks_row[i]).strip().lower() == stored.lower():
-                    current_col = i
-                    matched = True
-                    break
-            if not matched and stored:
-                # Legacy fallback: stored value might be a numeric column index
-                try:
-                    target_col = int(stored)
-                    max_col = max((i for i in range(1, len(weeks_row)) if str(weeks_row[i]).strip()), default=1)
-                    current_col = max(1, min(target_col, max_col))
-                except (ValueError, IndexError):
-                    pass
-            break
-    else:
-        # No CurrentWeek row found — use rightmost week that has a label
+
+    def _find_col_by_label(label):
+        label_l = label.strip().lower()
         for i in range(1, len(weeks_row)):
-            if str(weeks_row[i]).strip():
-                current_col = i
+            if str(weeks_row[i]).strip().lower() == label_l:
+                return i
+        return None
+
+    if _investment_week_override:
+        col = _find_col_by_label(_investment_week_override)
+        if col is not None:
+            current_col = col
+    else:
+        found_cw = False
+        for row in raw:
+            if row and str(row[0]).strip().lower().replace(" ", "") == "currentweek":
+                stored = str(row[1]).strip() if len(row) > 1 else ""
+                col = _find_col_by_label(stored)
+                if col is not None:
+                    current_col = col
+                    # Warm the in-memory override so future calls don't re-scan the sheet
+                    _investment_week_override = str(weeks_row[col]).strip()
+                elif stored:
+                    # Legacy fallback: stored value might be a numeric column index
+                    try:
+                        target_col = int(stored)
+                        max_col = max((i for i in range(1, len(weeks_row)) if str(weeks_row[i]).strip()), default=1)
+                        current_col = max(1, min(target_col, max_col))
+                        _investment_week_override = str(weeks_row[current_col]).strip()
+                    except (ValueError, IndexError):
+                        pass
+                found_cw = True
+                break
+        if not found_cw:
+            # No CurrentWeek row — use rightmost labelled week
+            for i in range(1, len(weeks_row)):
+                if str(weeks_row[i]).strip():
+                    current_col = i
 
     current_week_label = str(weeks_row[current_col]) if current_col < len(weeks_row) else ""
 
@@ -1671,7 +1761,7 @@ def get_investments_data():
     companies = []
     for row in company_rows:
         name = str(row[0]).strip() if row else ""
-        if not name or name.lower() == "inflation":
+        if not name or name.lower() in ("inflation", "currentweek"):
             continue
 
         # Build history for every labelled week
@@ -1942,7 +2032,7 @@ def process_loans():
                 continue
     
     # Invalidate loan caches after processing
-    cache.invalidate("all_loans", "pending_loans")
+    cache.invalidate("all_loans", "all_loans_raw", "pending_loans")
     cache.invalidate_pattern("user_loans_")
     
     flash(f"Processed {processed_count} loan payments")
@@ -3912,6 +4002,75 @@ def invalidate_lottery_caches(username=None):
         )
 
 
+def get_lottery_winning():
+    """Return the latest lottery winning-numbers dict, or None if never drawn.
+    Stored as extra columns on the Reserve sheet row 2:
+    LotteryNum1 … LotteryNum4, LotteryVex, LotteryDrawDate, LotteryDrawName.
+    """
+    cache_key = "lottery_winning"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached if cached.get("drawn") else None
+    try:
+        def fetch():
+            header = fed_sheet.row_values(1)
+            if "LotteryNum1" not in header:
+                return None
+            values = fed_sheet.row_values(2)
+            col = {name: idx for idx, name in enumerate(header)}
+            def gv(k):
+                i = col.get(k)
+                return values[i] if i is not None and i < len(values) else ""
+            n1 = gv("LotteryNum1")
+            if not n1:
+                return None
+            return {
+                "drawn": True,
+                "numbers": [gv("LotteryNum1"), gv("LotteryNum2"),
+                            gv("LotteryNum3"), gv("LotteryNum4")],
+                "vex":       gv("LotteryVex"),
+                "draw_date": gv("LotteryDrawDate"),
+                "draw_name": gv("LotteryDrawName"),
+            }
+        result = retry_with_backoff(fetch)
+    except Exception:
+        result = None
+    cache.set(cache_key, result or {"drawn": False}, ttl=120)
+    return result
+
+
+def set_lottery_winning(numbers, vex, draw_name=""):
+    """Persist winning numbers to the Reserve sheet (append columns if needed)."""
+    needed = ["LotteryNum1", "LotteryNum2", "LotteryNum3", "LotteryNum4",
+              "LotteryVex", "LotteryDrawDate", "LotteryDrawName"]
+
+    def _ensure_cols():
+        header = fed_sheet.row_values(1)
+        for col_name in needed:
+            if col_name not in header:
+                next_col = len(header) + 1
+                fed_sheet.update_cell(1, next_col, col_name)
+                header.append(col_name)
+
+    retry_with_backoff(_ensure_cols)
+    cache.invalidate("fed_columns")
+
+    now_str = datetime.now().strftime("%Y-%m-%d")
+    updates = {
+        "LotteryNum1":    str(numbers[0]),
+        "LotteryNum2":    str(numbers[1]),
+        "LotteryNum3":    str(numbers[2]),
+        "LotteryNum4":    str(numbers[3]),
+        "LotteryVex":     str(vex),
+        "LotteryDrawDate": now_str,
+        "LotteryDrawName": draw_name or now_str,
+    }
+    for k, v in updates.items():
+        set_fed_value(k, v)
+
+    cache.invalidate("lottery_winning", "fed_stats")
+
+
 # ---------- LOTTERY ROUTES ----------
 
 @app.route("/lottery")
@@ -3919,15 +4078,19 @@ def lottery():
     if "user" not in session:
         return redirect(url_for("login"))
     ensure_lottery_pools()
-    username = session["user"]
+    username  = session["user"]
     pools        = get_lottery_pool_balances()
     user_tickets = get_user_lottery_tickets(username)
     user_balance = get_user_balance(username)
+    winning      = get_lottery_winning()
+    is_banker    = session.get("role") in ("Banker", "Teacher")
     return render_template(
         "lottery.html",
         pools=pools,
         user_tickets=user_tickets,
         user_balance=user_balance,
+        winning=winning,
+        is_banker=is_banker,
     )
 
 
@@ -4052,6 +4215,161 @@ def lottery_buy():
         f"First ticket: [{', '.join(str(n) for n in tickets_data[0][0])}] + Vex {tickets_data[0][1]}. Good luck!",
         "success",
     )
+    return redirect(url_for("lottery"))
+
+
+@app.route("/lottery/draw", methods=["POST"])
+def lottery_draw():
+    """Banker/Teacher only: set winning numbers and optionally run the drawing."""
+    if "user" not in session:
+        return redirect(url_for("login"))
+    if session.get("role") not in ("Banker", "Teacher"):
+        flash("You don't have permission to do that.", "error")
+        return redirect(url_for("lottery"))
+
+    try:
+        nums = [
+            int(request.form.get("n1", 0)),
+            int(request.form.get("n2", 0)),
+            int(request.form.get("n3", 0)),
+            int(request.form.get("n4", 0)),
+        ]
+        vex       = int(request.form.get("vex", 0))
+        draw_name = request.form.get("draw_name", "").strip()
+        run       = request.form.get("run_drawing") == "1"
+    except (ValueError, TypeError):
+        flash("Invalid number input.", "error")
+        return redirect(url_for("lottery"))
+
+    # Validate
+    for n in nums:
+        if not (1 <= n <= 8):
+            flash("All 4 main numbers must be between 1 and 8.", "error")
+            return redirect(url_for("lottery"))
+    if len(set(nums)) != 4:
+        flash("All 4 numbers must be unique.", "error")
+        return redirect(url_for("lottery"))
+    if not (1 <= vex <= 10):
+        flash("Vex Ball must be between 1 and 10.", "error")
+        return redirect(url_for("lottery"))
+
+    set_lottery_winning(nums, vex, draw_name)
+
+    if run:
+        winning_set = set(nums)
+        winners_jackpot = []
+        winners_match   = []
+        winners_vex     = []
+
+        def _get_tickets():
+            return lottery_sheet.get_all_records()
+
+        tickets = retry_with_backoff(_get_tickets)
+        pools   = get_lottery_pool_balances()
+
+        for t in tickets:
+            if t.get("Drawing") != "Active":
+                continue
+            numstr = str(t.get("Number1", ""))
+            try:
+                ticket_nums = set(int(x.strip()) for x in numstr.split(","))
+            except (ValueError, TypeError):
+                continue
+            try:
+                ticket_vex = int(t.get("VexBall", 0))
+            except (ValueError, TypeError):
+                ticket_vex = 0
+
+            match_nums = ticket_nums == winning_set
+            match_vex  = ticket_vex == vex
+
+            if match_nums and match_vex:
+                winners_jackpot.append(t["Username"])
+            elif match_nums:
+                winners_match.append(t["Username"])
+            elif match_vex:
+                winners_vex.append(t["Username"])
+
+        # ── Award jackpot (split if multiple winners) ────────────
+        jackpot_amount = pools["prize"]
+        if winners_jackpot:
+            unique_jackpot = list(set(winners_jackpot))
+            share = round(jackpot_amount / len(winners_jackpot), 2)
+            for uname in unique_jackpot:
+                count = winners_jackpot.count(uname)
+                award = round(share * count, 2)
+                bal = get_user_balance(uname)
+                update_balance(uname, round(bal + award, 2))
+                add_transaction("LotteryPrize", uname, award,
+                                f"🎉 Lottery Jackpot winner! Drawing: {draw_name or 'Draw'}")
+            update_balance("LotteryPrize", 0.0)
+
+        # ── Award $50 for 4-number match (no Vex) ───────────────
+        for uname in winners_match:
+            bal = get_user_balance(uname)
+            update_balance(uname, round(bal + 50.0, 2))
+            add_transaction("LotteryPrize", uname, 50.0,
+                            f"🟡 Lottery: matched 4 numbers! Drawing: {draw_name or 'Draw'}")
+            pools = get_lottery_pool_balances()
+            update_balance("LotteryPrize", max(0.0, round(pools["prize"] - 50.0, 2)))
+
+        # ── Award $2 refund for Vex Ball only ────────────────────
+        for uname in winners_vex:
+            bal = get_user_balance(uname)
+            update_balance(uname, round(bal + 2.0, 2))
+            add_transaction("LotteryPrize", uname, 2.0,
+                            f"🔵 Lottery: Vex Ball match refund. Drawing: {draw_name or 'Draw'}")
+            pools = get_lottery_pool_balances()
+            update_balance("LotteryPrize", max(0.0, round(pools["prize"] - 2.0, 2)))
+
+        # ── Mark all Active tickets as drawn ─────────────────────
+        label = draw_name or datetime.now().strftime("%Y-%m-%d")
+
+        def _mark_done():
+            all_vals = lottery_sheet.get_all_values()
+            if not all_vals:
+                return
+            header = all_vals[0]
+            if "Drawing" not in header:
+                return
+            drawing_col = header.index("Drawing")  # 0-based
+            batch = []
+            for row_idx, row in enumerate(all_vals[1:], start=2):
+                if len(row) > drawing_col and row[drawing_col] == "Active":
+                    col_letter = chr(65 + drawing_col)
+                    batch.append({
+                        "range":  f"{col_letter}{row_idx}",
+                        "values": [[label]],
+                    })
+            if batch:
+                lottery_sheet.batch_update(batch)
+
+        retry_with_backoff(_mark_done)
+
+        # Bust all caches
+        cache.invalidate("all_users")
+        for u in get_all_users():
+            cache.invalidate(
+                f"lottery_tickets_{u['Username']}",
+                f"user_balance_{u['Username']}",
+                f"user_data_{u['Username']}",
+            )
+
+        flash(
+            f"✅ Drawing complete! "
+            f"Jackpot winners: {len(set(winners_jackpot))} | "
+            f"4-number matches: {len(set(winners_match))} | "
+            f"Vex-only: {len(set(winners_vex))}",
+            "success",
+        )
+    else:
+        flash(
+            f"Winning numbers saved: "
+            f"{nums[0]}-{nums[1]}-{nums[2]}-{nums[3]} + Vex {vex}",
+            "success",
+        )
+
+    invalidate_lottery_caches()
     return redirect(url_for("lottery"))
 
 
@@ -4202,29 +4520,32 @@ def api_stocks():
 @app.route("/set_investment_week", methods=["POST"])
 @role_required("Banker")
 def set_investment_week():
-    """Write the CurrentWeek marker into the Investments sheet so the
-    parser picks up the correct week column."""
+    """Set the active Investment Floor week. Stored in memory immediately
+    (instant effect) and persisted to the sheet for server-restart survival."""
+    global _investment_week_override
     week_label = request.form.get("week_label", "").strip()
     if not week_label:
         flash("Invalid week selection.", "error")
         return redirect(url_for("federal_reserve"))
 
-    if investments_sheet is None:
-        flash("Investments sheet not found.", "error")
-        return redirect(url_for("federal_reserve"))
-
-    def write_week():
-        raw = investments_sheet.get_all_values()
-        # Look for existing CurrentWeek row
-        for i, row in enumerate(raw):
-            if row and str(row[0]).strip().lower().replace(" ", "") == "currentweek":
-                investments_sheet.update_cell(i + 1, 2, week_label)
-                return
-        # Not found — append one
-        investments_sheet.append_row(["CurrentWeek", week_label])
-
-    retry_with_backoff(write_week)
+    # Set in-memory first — takes effect on the very next request, no API lag
+    _investment_week_override = week_label
     cache.invalidate("investments_data")
+
+    # Also persist to sheet so the setting survives a server restart
+    if investments_sheet is not None:
+        def write_week():
+            raw = investments_sheet.get_all_values()
+            for i, row in enumerate(raw):
+                if row and str(row[0]).strip().lower().replace(" ", "") == "currentweek":
+                    investments_sheet.update_cell(i + 1, 2, week_label)
+                    return
+            investments_sheet.append_row(["CurrentWeek", week_label])
+        try:
+            retry_with_backoff(write_week)
+        except Exception:
+            pass  # in-memory override is already set; sheet write failure is non-fatal
+
     flash(f"Investment current week set to {week_label}.", "success")
     return redirect(url_for("federal_reserve"))
 
