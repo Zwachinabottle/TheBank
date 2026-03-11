@@ -4229,12 +4229,12 @@ def lottery_draw():
 
     try:
         nums = [
-            int(request.form.get("n1", 0)),
-            int(request.form.get("n2", 0)),
-            int(request.form.get("n3", 0)),
-            int(request.form.get("n4", 0)),
+            int(request.form.get("n1", 0) or 0),
+            int(request.form.get("n2", 0) or 0),
+            int(request.form.get("n3", 0) or 0),
+            int(request.form.get("n4", 0) or 0),
         ]
-        vex       = int(request.form.get("vex", 0))
+        vex       = int(request.form.get("vex", 0) or 0)
         draw_name = request.form.get("draw_name", "").strip()
         run       = request.form.get("run_drawing") == "1"
     except (ValueError, TypeError):
@@ -4253,9 +4253,14 @@ def lottery_draw():
         flash("Vex Ball must be between 1 and 10.", "error")
         return redirect(url_for("lottery"))
 
-    set_lottery_winning(nums, vex, draw_name)
+    try:
+        set_lottery_winning(nums, vex, draw_name)
+    except Exception as exc:
+        app.logger.error("set_lottery_winning failed: %s", exc, exc_info=True)
+        flash(f"Could not save winning numbers: {exc}", "error")
+        return redirect(url_for("lottery"))
 
-    if run:
+    def _do_drawing():
         winning_set = set(nums)
         winners_jackpot = []
         winners_match   = []
@@ -4324,6 +4329,7 @@ def lottery_draw():
 
         # ── Mark all Active tickets as drawn ─────────────────────
         label = draw_name or datetime.now().strftime("%Y-%m-%d")
+        sheet_title = lottery_sheet.title
 
         def _mark_done():
             all_vals = lottery_sheet.get_all_values()
@@ -4338,11 +4344,14 @@ def lottery_draw():
                 if len(row) > drawing_col and row[drawing_col] == "Active":
                     col_letter = chr(65 + drawing_col)
                     batch.append({
-                        "range":  f"{col_letter}{row_idx}",
+                        "range":  f"'{sheet_title}'!{col_letter}{row_idx}",
                         "values": [[label]],
                     })
             if batch:
-                lottery_sheet.batch_update(batch)
+                lottery_sheet.spreadsheet.values_batch_update({
+                    "valueInputOption": "RAW",
+                    "data": batch,
+                })
 
         retry_with_backoff(_mark_done)
 
@@ -4362,6 +4371,13 @@ def lottery_draw():
             f"Vex-only: {len(set(winners_vex))}",
             "success",
         )
+
+    if run:
+        try:
+            _do_drawing()
+        except Exception as exc:
+            app.logger.error("lottery drawing failed: %s", exc, exc_info=True)
+            flash(f"Drawing error: {exc}", "error")
     else:
         flash(
             f"Winning numbers saved: "
