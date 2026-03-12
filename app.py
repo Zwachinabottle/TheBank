@@ -149,6 +149,13 @@ except Exception:
     lottery_sheet = sheet.add_worksheet("Lottery", rows=5000, cols=6)
     lottery_sheet.update([["TicketID", "Username", "Number1", "VexBall", "PurchaseDate", "Drawing"]], 'A1:F1')
 
+# Pre-load the LotteryLogs sheet (purchase records & win/loss events).
+try:
+    lottery_logs_sheet = sheet.worksheet("LotteryLogs")
+except Exception:
+    lottery_logs_sheet = sheet.add_worksheet("LotteryLogs", rows=5000, cols=5)
+    lottery_logs_sheet.update([["Username", "Type", "Amount", "Date", "Description"]], 'A1:E1')
+
 # Load the Investments sheet (teacher-maintained company net-worth table).
 try:
     investments_sheet = sheet.worksheet("Investments")
@@ -380,6 +387,57 @@ def add_transaction(sender, receiver, amount, comment=""):
     cache.invalidate(f"transactions_{sender}", f"transactions_{receiver}",
                      "all_transactions_raw", "all_logs_raw")
 
+
+def add_lottery_log(username, log_type, amount, description=""):
+    """Write a lottery event to the LotteryLogs sheet instead of transactions."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not description:
+        description = log_type
+
+    def append():
+        lottery_logs_sheet.append_row([username, log_type, amount, now, description])
+
+    retry_with_backoff(append)
+    cache.invalidate(f"lottery_logs_{username}", "all_lottery_logs_raw")
+
+
+def get_all_lottery_logs_raw():
+    """Return all rows from the LotteryLogs sheet, shared across callers."""
+    cache_key = "all_lottery_logs_raw"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    def fetch():
+        return lottery_logs_sheet.get_all_records()
+    rows = retry_with_backoff(fetch)
+    cache.set(cache_key, rows, ttl=SheetCache.MEDIUM_TTL)
+    return rows
+
+
+def get_user_lottery_logs(username):
+    """Return lottery log entries for a user, newest-first."""
+    cache_key = f"lottery_logs_{username}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    rows = get_all_lottery_logs_raw()
+    logs = []
+    for r in rows:
+        if r.get("Username") == username:
+            try:
+                amount = float(r["Amount"])
+            except (ValueError, TypeError):
+                amount = 0.0
+            logs.append({
+                "Type":        r.get("Type", ""),
+                "Amount":      amount,
+                "Date":        r.get("Date", ""),
+                "Description": r.get("Description", ""),
+            })
+    logs.sort(key=lambda x: x["Date"], reverse=True)
+    cache.set(cache_key, logs, ttl=SheetCache.SHORT_TTL)
+    return logs
+
 def get_user_balance(username):
     """Get user balance with caching"""
     cache_key = f"user_balance_{username}"
@@ -463,19 +521,25 @@ def get_user_transactions(username):
     rows = get_all_transactions_raw()
     formatted = []
 
-    # Pull from Transactions sheet
+    # Pull from Transactions sheet (exclude lottery-related entries — those live in LotteryLogs)
+    _lottery_accounts = {"LotteryPrize", "LotteryReserve", "LotteryEmployment"}
     for t in rows:
-        if t.get("Sender") == username or t.get("Receiver") == username:
+        sender   = t.get("Sender", "")
+        receiver = t.get("Receiver", "")
+        # Skip any row involving an internal lottery pool account
+        if sender in _lottery_accounts or receiver in _lottery_accounts:
+            continue
+        if sender == username or receiver == username:
             try:
                 amount = float(t["Amount"])
             except (ValueError, TypeError):
                 continue
             formatted.append({
-                "Sender": t.get("Sender", ""),
-                "Receiver": t.get("Receiver", ""),
-                "Amount": amount,
-                "Date": t.get("Date", ""),
-                "Comment": t.get("Comment", "No comment")
+                "Sender":   sender,
+                "Receiver": receiver,
+                "Amount":   amount,
+                "Date":     t.get("Date", ""),
+                "Comment":  t.get("Comment", "No comment")
             })
 
     # Also pull teacher adjustments from Logs that reference this student
@@ -2124,11 +2188,14 @@ def account():
     card_number = user_data.get("CardNumber", "N/A") if user_data else "N/A"
     pin = user_data.get("PIN", "N/A") if user_data else "N/A"
 
+    lottery_logs = get_user_lottery_logs(username)
+
     return render_template("account.html",
                            username=username,
                            balance=balance,
                            transactions=transactions,
                            loans=loans,
+                           lottery_logs=lottery_logs,
                            card_number=card_number,
                            pin=pin) 
 
@@ -4122,10 +4189,11 @@ def get_user_lottery_tickets(username):
 
 
 def invalidate_lottery_caches(username=None):
-    cache.invalidate("all_users", "bank_account")
+    cache.invalidate("all_users", "bank_account", "all_lottery_logs_raw")
     if username:
         cache.invalidate(
             f"lottery_tickets_{username}",
+            f"lottery_logs_{username}",
             f"user_balance_{username}",
             f"user_data_{username}",
         )
@@ -4331,10 +4399,10 @@ def lottery_buy():
 
     retry_with_backoff(_append)
 
-    # ── Log transaction ───────────────────────────────────────
-    add_transaction(
-        username, "LotteryPrize", total_cost,
-        f"Lottery ticket purchase x{quantity}",
+    # ── Log to LotteryLogs (not general transactions) ─────────
+    add_lottery_log(
+        username, "Purchase", total_cost,
+        f"Bought {quantity} ticket{'s' if quantity != 1 else ''} — ${total_cost:.2f} spent",
     )
 
     invalidate_lottery_caches(username)
@@ -4429,16 +4497,16 @@ def lottery_draw():
                 award = round(share * count, 2)
                 bal = get_user_balance(uname)
                 update_balance(uname, round(bal + award, 2))
-                add_transaction("LotteryPrize", uname, award,
-                                f"🎉 Lottery Jackpot winner! Drawing: {draw_name or 'Draw'}")
+                add_lottery_log(uname, "Jackpot Win", award,
+                                f"Jackpot winner! Drawing: {draw_name or 'Draw'}")
             update_balance("LotteryPrize", 0.0)
 
         # ── Award $50 for 4-number match (no Vex) ───────────────
         for uname in winners_match:
             bal = get_user_balance(uname)
             update_balance(uname, round(bal + 50.0, 2))
-            add_transaction("LotteryPrize", uname, 50.0,
-                            f"🟡 Lottery: matched 4 numbers! Drawing: {draw_name or 'Draw'}")
+            add_lottery_log(uname, "4-Number Win", 50.0,
+                            f"Matched all 4 numbers! Drawing: {draw_name or 'Draw'}")
             pools = get_lottery_pool_balances()
             update_balance("LotteryPrize", max(0.0, round(pools["prize"] - 50.0, 2)))
 
@@ -4446,8 +4514,8 @@ def lottery_draw():
         for uname in winners_vex:
             bal = get_user_balance(uname)
             update_balance(uname, round(bal + 2.0, 2))
-            add_transaction("LotteryPrize", uname, 2.0,
-                            f"🔵 Lottery: Vex Ball match refund. Drawing: {draw_name or 'Draw'}")
+            add_lottery_log(uname, "Vex Ball Win", 2.0,
+                            f"Vex Ball match refund. Drawing: {draw_name or 'Draw'}")
             pools = get_lottery_pool_balances()
             update_balance("LotteryPrize", max(0.0, round(pools["prize"] - 2.0, 2)))
 

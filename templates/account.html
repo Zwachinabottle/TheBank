@@ -236,6 +236,37 @@
       box-shadow:0 6px 20px rgba(0,0,0,0.18);
     }
 
+    /* LOTTERY LOGS */
+    .lottery-logs-box {
+      margin-top:15px;
+      background:var(--bg2);
+      padding:12px 16px;
+      border-radius:var(--rounded);
+      border:1px solid rgba(255,196,36,0.25);
+      box-shadow:0 6px 20px rgba(0,0,0,0.18);
+    }
+
+    .lottery-logs-box h2 {
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+
+    .lottery-log-type {
+      display:inline-block;
+      font-size:11px;
+      font-weight:700;
+      letter-spacing:.5px;
+      padding:2px 8px;
+      border-radius:20px;
+      text-transform:uppercase;
+    }
+
+    .lottery-log-type.purchase  { background:rgba(36,191,240,0.15); color:#24bff0; border:1px solid rgba(36,191,240,0.3); }
+    .lottery-log-type.jackpot   { background:rgba(255,196,36,0.18); color:#f5c842; border:1px solid rgba(255,196,36,0.4); }
+    .lottery-log-type.four-num  { background:rgba(34,197,94,0.15);  color:#22c55e; border:1px solid rgba(34,197,94,0.3); }
+    .lottery-log-type.vex       { background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.3); }
+
     .history-box {
       max-height: 200px;
       overflow-y:auto;
@@ -884,6 +915,48 @@
       <tr data-placeholder>
         <td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">
           No transactions yet
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="lottery-logs-box">
+  <h2>🎟️ Lottery History
+    <button class="expand-btn" style="margin-left:auto" onclick="expandTable('lottery-logs-container', 'Lottery History')">⛶ Expand Fullscreen</button>
+  </h2>
+  <div class="history-box" id="lottery-logs-container">
+    <table id="lottery-logs-list">
+      {% for log in lottery_logs %}
+      <tr>
+        <td>
+          {% if log.Type == 'Purchase' %}
+            <span class="lottery-log-type purchase">Purchase</span>
+          {% elif log.Type == 'Jackpot Win' %}
+            <span class="lottery-log-type jackpot">🏆 Jackpot</span>
+          {% elif log.Type == '4-Number Win' %}
+            <span class="lottery-log-type four-num">4 Numbers</span>
+          {% elif log.Type == 'Vex Ball Win' %}
+            <span class="lottery-log-type vex">Vex Ball</span>
+          {% else %}
+            <span class="lottery-log-type purchase">{{ log.Type }}</span>
+          {% endif %}
+          <span style="margin-left:6px;font-weight:600">{{ log.Description }}</span><br>
+          <span style="font-size:13px;color:var(--text-muted)">{{ log.Date }}</span>
+        </td>
+        <td style="text-align:right;font-weight:700;white-space:nowrap">
+          {% if log.Type == 'Purchase' %}
+            <span style="color:#ef4444">−<span class="dollar">$</span>{{ "%.2f"|format(log.Amount) }}</span>
+          {% else %}
+            <span style="color:#22c55e">+<span class="dollar">$</span>{{ "%.2f"|format(log.Amount) }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">
+          No lottery activity yet
         </td>
       </tr>
       {% endfor %}
