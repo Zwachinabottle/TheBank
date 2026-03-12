@@ -1109,7 +1109,7 @@ def process_weekly_personal_payments():
 
     # ── Phase 1: collect all updates in memory (no API calls) ──────────────
     for user in all_users:
-        if user.get("AccountType") != "Personal" or user.get("Role") != "Student":
+        if user.get("AccountType") != "Personal":
             continue
 
         weekly_payment = user.get("WeeklyPayment", "")
