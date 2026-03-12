@@ -4700,8 +4700,8 @@ def stocks_request_fund():
     except ValueError:
         flash("Invalid amount.", "error")
         return redirect(url_for("stocks"))
-    if amount < 1 or amount > 500:
-        flash("Fund request must be between $1 and $500.", "error")
+    if amount < 1 or amount > 1000:
+        flash("Fund request must be between $1 and $1000.", "error")
         return redirect(url_for("stocks"))
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     def append():

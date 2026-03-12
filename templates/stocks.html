@@ -545,7 +545,7 @@
     <div class="fund-box">
       <div class="fund-badge">🪙 Action Token</div>
       <h2>Investment Fund</h2>
-      <p>Request up to <strong>$500</strong> per action token. Once your banker approves, the funds are added to your Investment Fund and you can use them to invest — requests stack!</p>
+      <p>Request up to <strong>$1000</strong> per action token. Once your banker approves, the funds are added to your Investment Fund and you can use them to invest — requests stack!</p>
       <div class="fund-row">
         <span class="fr-l">Your Balance</span>
         <span class="fr-v">${{ "%.2f"|format(balance) }}</span>
@@ -555,8 +555,8 @@
         <span class="fr-v" style="color:var(--brand)" id="fund-balance-display">${{ "%.2f"|format(fund_balance) }}</span>
       </div>
       <form method="POST" action="/stocks/request_fund" id="fundForm">
-        <input type="hidden" name="amount" value="500">
-        <div class="fund-note">Requesting <strong>$500.00</strong> — once approved, it stacks onto your Investment Fund!</div>
+        <input type="hidden" name="amount" value="1000">
+        <div class="fund-note">Requesting <strong>$1000.00</strong> — once approved, it stacks onto your Investment Fund!</div>
         <div class="fund-actions">
           <button type="submit" class="fund-btn-submit">🪙 Send Request to Banker</button>
           <button type="button" class="fund-btn-close" onclick="closeFundModal()">Close for now</button>
