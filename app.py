@@ -4591,18 +4591,18 @@ def lottery_buy():
                             raise ValueError("main number out of range")
                     if len(set(nums)) != 4:
                         raise ValueError("numbers must be unique")
-                    if not (1 <= vex <= 10):
+                    if not (1 <= vex <= 12):
                         raise ValueError("vex out of range")
                     tickets_data.append((sorted(nums), vex))
             except (ValueError, TypeError, KeyError, IndexError) as exc:
-                flash(f"Invalid ticket numbers: {exc}. Main: 4 unique from 1-8, Vex Ball: 1-10.", "error")
+                flash(f"Invalid ticket numbers: {exc}. Main: 4 unique from 1-8, Vex Ball: 1-12.", "error")
                 return redirect(url_for("lottery"))
         else:
             flash("Please use the Pick Numbers form to enter your numbers.", "error")
             return redirect(url_for("lottery"))
     else:
         tickets_data = [
-            (sorted(_random.sample(range(1, 9), 4)), _random.randint(1, 10))
+            (sorted(_random.sample(range(1, 9), 4)), _random.randint(1, 12))
             for _ in range(quantity)
         ]
 
@@ -4687,8 +4687,8 @@ def lottery_draw():
     if len(set(nums)) != 4:
         flash("All 4 numbers must be unique.", "error")
         return redirect(url_for("lottery"))
-    if not (1 <= vex <= 10):
-        flash("Vex Ball must be between 1 and 10.", "error")
+    if not (1 <= vex <= 12):
+        flash("Vex Ball must be between 1 and 12.", "error")
         return redirect(url_for("lottery"))
 
     set_lottery_winning(nums, vex, draw_name)
