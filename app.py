@@ -189,6 +189,13 @@ except Exception:
     invest_funds_sheet = sheet.add_worksheet("InvestFunds", rows=1000, cols=2)
     invest_funds_sheet.update([["Username", "Balance"]], 'A1:B1')
 
+# Pre-load FeeLogs sheet (one row per 1% transaction fee collected by the bank).
+try:
+    fee_logs_sheet = sheet.worksheet("FeeLogs")
+except Exception:
+    fee_logs_sheet = sheet.add_worksheet("FeeLogs", rows=5000, cols=6)
+    fee_logs_sheet.update([["Date", "Sender", "Receiver", "TransactionAmount", "FeeAmount", "Description"]], 'A1:F1')
+
 # Ensure Transactions sheet has a proper header row
 trans_required_headers = ["Sender", "Receiver", "Amount", "Date", "Comment"]
 trans_header = transactions_sheet.row_values(1)
@@ -386,6 +393,19 @@ def add_transaction(sender, receiver, amount, comment=""):
     # Invalidate transaction caches for both users (also bust shared raw caches)
     cache.invalidate(f"transactions_{sender}", f"transactions_{receiver}",
                      "all_transactions_raw", "all_logs_raw")
+
+
+def log_fee(sender, receiver, transaction_amount, fee_amount, description=""):
+    """Append a row to the FeeLogs sheet whenever the bank collects a 1% fee."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not description:
+        description = f"1% transaction fee on transfer from {sender} to {receiver}"
+
+    def append():
+        fee_logs_sheet.append_row([now, sender, receiver, transaction_amount, fee_amount, description])
+
+    retry_with_backoff(append)
+    cache.invalidate("all_fee_logs_raw")
 
 
 def add_lottery_log(username, log_type, amount, description=""):
@@ -625,10 +645,16 @@ def transfer_money(sender, receiver, amount, comment):
         # 1% transaction fee — created as new money added to the bank account
         fee = round(amount * 0.01, 2)
         if fee > 0:
-            bank_account = get_bank_account()
-            bank_balance = float(bank_account.get("Balance", 0))
-            update_bank_balance(bank_balance + fee)
-            add_transaction("System", "Bank", fee, f"1% transaction fee on transfer from {sender} to {receiver}")
+            try:
+                cache.invalidate("bank_account", "all_users")
+                bank_account = get_bank_account()
+                bank_balance = float(bank_account.get("Balance", 0))
+                update_bank_balance(bank_balance + fee)
+                add_transaction("System", "Bank", fee, f"1% transaction fee on transfer from {sender} to {receiver}")
+                log_fee(sender, receiver, amount, fee)
+            except Exception as fee_err:
+                print(f"WARNING: Could not collect 1% fee for transfer {sender}->{receiver} ${amount}: {fee_err}")
+                # Transfer already completed — do not corrupt bank balance, just skip fee
 
         cache.invalidate(
             "all_users",
@@ -777,7 +803,9 @@ def ensure_fed_sheet():
         "ProjectEndDate",  # Date when all loans must be paid off (format: YYYY-MM-DD)
         "TimePeriod",             # Current time era label (e.g. "Ancient Rome")
         "ExchangeRate",           # Multiplier applied to base weekly payments (default 1.0)
-        "PersonalToCompanyRate"   # Exchange: 1 personal $ → N company $ (default 1.0)
+        "PersonalToCompanyRate",  # Exchange: 1 personal $ → N company $ (default 1.0)
+        "WeekStartBankBalance",   # Bank balance snapshot taken at start of the week
+        "WeekStartTimestamp"      # When the week snapshot was last taken
     ]
 
     existing_headers = fed_sheet.row_values(1)
@@ -838,6 +866,91 @@ def ensure_deletions_sheet():
 ensure_fed_sheet()
 ensure_logs_sheet()
 ensure_deletions_sheet()
+
+def get_week_start_balance() -> float:
+    """Return the stored week-start bank balance snapshot (0 if never set)."""
+    stats = get_federal_reserve_stats()
+    val = stats.get("WeekStartBankBalance", "")
+    try:
+        return float(val) if val != "" else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def set_week_start_balance(amount: float):
+    """Persist a new week-start bank balance snapshot to the Reserve sheet."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    set_fed_value("WeekStartBankBalance", round(amount, 2))
+    set_fed_value("WeekStartTimestamp", now)
+    cache.invalidate("fed_stats")
+
+
+def process_banker_profit_share(triggering_banker: str) -> dict:
+    """Calculate and pay out 50 % of this week's bank profit to all Banker-role users.
+
+    Safety guarantee — no double-dipping:
+        profit  = current_bank_balance - week_start_snapshot
+        payout  = profit * 0.50  (split equally among all Banker accounts)
+        new snapshot = current_bank_balance - payout   (i.e. post-payout balance)
+    Running this twice in the same week therefore yields profit ≈ $0 the second time.
+
+    Returns a dict with keys: profit, total_payout, per_banker, bankers_paid.
+    """
+    cache.invalidate("bank_account", "all_users")
+    bank_account = get_bank_account()
+    current_balance = round(float(bank_account.get("Balance", 0)), 2)
+    week_start = get_week_start_balance()
+
+    profit = round(current_balance - week_start, 2)
+    if profit <= 0:
+        # Update snapshot to current (covers edge case where bank lost money)
+        set_week_start_balance(current_balance)
+        return {"profit": profit, "total_payout": 0.0, "per_banker": 0.0, "bankers_paid": 0}
+
+    total_payout = round(profit * 0.50, 2)
+
+    # Find all users with Role="Banker"
+    all_users = get_all_users()
+    bankers = [u for u in all_users if u.get("Role") == "Banker" and u.get("Username") != "Bank"]
+
+    if not bankers:
+        # No bankers found — still reset snapshot so profit doesn't accumulate unfairly
+        set_week_start_balance(current_balance)
+        return {"profit": profit, "total_payout": 0.0, "per_banker": 0.0, "bankers_paid": 0}
+
+    per_banker = round(total_payout / len(bankers), 2)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Deduct total from bank first
+    update_bank_balance(current_balance - total_payout)
+
+    # Credit each banker
+    for b in bankers:
+        uname = b["Username"]
+        cur_bal = round(float(b.get("Balance", 0)), 2)
+        update_balance(uname, cur_bal + per_banker)
+        add_transaction("Bank", uname, per_banker,
+                        f"Weekly banker profit share (50% of ${profit:.2f} bank profit)")
+
+    log_action(triggering_banker,
+               f"Banker profit share: 50% of ${profit:.2f} profit = ${total_payout:.2f} "
+               f"split among {len(bankers)} banker(s) (${per_banker:.2f} each)",
+               total_payout, "Profit Share")
+
+    # Reset snapshot to the post-payout balance so next week starts fresh
+    post_payout_balance = current_balance - total_payout
+    set_week_start_balance(post_payout_balance)
+
+    cache.invalidate("bank_account")
+    cache.invalidate_pattern("users")
+
+    return {
+        "profit": profit,
+        "total_payout": total_payout,
+        "per_banker": per_banker,
+        "bankers_paid": len(bankers)
+    }
+
 
 def get_fed_columns():
     """Get federal reserve column mapping with caching"""
@@ -1110,6 +1223,7 @@ def process_loan_payments():
             update_balance(requester, new_balance)
             
             # CREDIT the bank's account (loan repayment goes back to bank)
+            cache.invalidate("bank_account", "all_users")
             bank_account = get_bank_account()
             bank_balance = float(bank_account.get("Balance", 0))
             new_bank_balance = bank_balance + weekly_payment
@@ -1304,6 +1418,7 @@ def approve_loan(loan_row_index):
     weeks = int(loan[col_index["Weeks"] - 1])
     
     # DEDUCT loan amount from bank's account (fractional reserve lending)
+    cache.invalidate("bank_account", "all_users")
     bank_account = get_bank_account()
     bank_balance = float(bank_account.get("Balance", 0))
     
@@ -2933,14 +3048,49 @@ def process_loan_payments_route():
 @app.route("/process_weekly_payments", methods=["POST"])
 @role_required("Banker")
 def process_weekly_payments_route():
-    """Manually trigger weekly payments for Personal accounts"""
+    """Manually trigger weekly payments for Personal accounts, then pay banker profit share."""
     try:
         payments_processed = process_weekly_personal_payments()
         flash(f"Processed {payments_processed} weekly payments for Personal accounts!")
-        return redirect(url_for("teacher_tools"))
     except Exception as e:
         flash(f"Error processing weekly payments: {str(e)}", "error")
         return redirect(url_for("teacher_tools"))
+
+    # Banker profit share — 50% of this week's bank profit
+    try:
+        result = process_banker_profit_share(session["user"])
+        if result["total_payout"] > 0:
+            flash(
+                f"Banker profit share: bank earned ${result['profit']:.2f} this week "
+                f"→ ${result['total_payout']:.2f} paid out to {result['bankers_paid']} "
+                f"banker(s) (${result['per_banker']:.2f} each).",
+                "success"
+            )
+        else:
+            if result["profit"] <= 0:
+                flash("Bank had no net profit this week — no banker payout.", "info")
+            else:
+                flash("No banker accounts found to receive profit share.", "info")
+    except Exception as e:
+        flash(f"Error calculating banker profit share: {str(e)}", "error")
+
+    return redirect(url_for("teacher_tools"))
+
+
+@app.route("/snapshot_bank_balance", methods=["POST"])
+@role_required("Banker")
+def snapshot_bank_balance_route():
+    """Set the week-start bank balance snapshot to the current bank balance.
+    Use this at the start of each new week to reset the profit clock.
+    """
+    bank_account = get_bank_account()
+    current = round(float(bank_account.get("Balance", 0)), 2)
+    set_week_start_balance(current)
+    log_action(session["user"],
+               f"Week snapshot set: bank balance = ${current:.2f}",
+               current, "Week Snapshot")
+    flash(f"Week snapshot set! Bank starts this week at ${current:.2f}.", "success")
+    return redirect(url_for("teacher_tools"))
 
 @app.route("/set_exchange_rate", methods=["POST"])
 @role_required("Teacher", "Banker")
@@ -3608,6 +3758,7 @@ def create_bank_money():
         return redirect(url_for("federal_reserve"))
     
     # Get or create bank account
+    cache.invalidate("bank_account", "all_users")
     bank_account = get_bank_account()
     current_balance = float(bank_account.get("Balance", 0))
     new_balance = current_balance + amount
@@ -3649,6 +3800,7 @@ def transfer_from_bank():
         return redirect(url_for("federal_reserve"))
     
     # Get bank balance
+    cache.invalidate("bank_account", "all_users")
     bank_account = get_bank_account()
     bank_balance = float(bank_account.get("Balance", 0))
     
@@ -3714,11 +3866,14 @@ def backfill_transaction_fees():
             return redirect(url_for("federal_reserve"))
 
         # Add the total fee to the bank balance as created money
+        cache.invalidate("bank_account", "all_users")
         bank_account = get_bank_account()
         bank_balance = float(bank_account.get("Balance", 0))
         update_bank_balance(bank_balance + total_fee)
         add_transaction("System", "Bank", total_fee,
                         f"Historical 1% fee backfill — {counted} past transactions")
+        log_fee("[Backfill]", "[Multiple]", 0, total_fee,
+                f"Historical 1% fee backfill — {counted} past transactions")
 
         log_action(session["user"],
                    f"Backfilled historical 1% fees: ${total_fee:.2f} from {counted} transactions",
@@ -3884,8 +4039,9 @@ def get_bank_account():
         
         cache.set(cache_key, bank_account)
         return bank_account
-    except:
-        return {"Username": "Bank", "Balance": "0", "Role": "System", "Email": "", "AccountType": "System", "CardNumber": "0000-0000-0000-0000", "PIN": "0000"}
+    except Exception as e:
+        print(f"ERROR: get_bank_account() failed: {e}")
+        raise  # Do NOT return a fake zero balance — callers must handle the failure
 
 def update_bank_balance(new_balance):
     """Update the bank account balance"""
@@ -3957,6 +4113,15 @@ def teacher_tools():
     exchange_rate = get_exchange_rate()
     time_period = get_time_period()
 
+    # Banker profit-share preview
+    bank_account = get_bank_account()
+    current_bank_balance = round(float(bank_account.get("Balance", 0)), 2)
+    week_start_balance = get_week_start_balance()
+    week_profit = round(current_bank_balance - week_start_balance, 2)
+    banker_profit_preview = round(week_profit * 0.50, 2) if week_profit > 0 else 0.0
+    fed_stats = get_federal_reserve_stats()
+    week_start_timestamp = fed_stats.get("WeekStartTimestamp", "")
+
     return render_template(
         "teachertools.html",
         users=users,
@@ -3966,7 +4131,12 @@ def teacher_tools():
         username=username,
         loans=loans,
         exchange_rate=exchange_rate,
-        time_period=time_period
+        time_period=time_period,
+        current_bank_balance=current_bank_balance,
+        week_start_balance=week_start_balance,
+        week_profit=week_profit,
+        banker_profit_preview=banker_profit_preview,
+        week_start_timestamp=week_start_timestamp
     )
 
 @app.route("/adjust_money", methods=["POST"])

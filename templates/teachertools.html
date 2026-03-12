@@ -1090,6 +1090,56 @@
                     ▶ Pay Students
                 </button>
             </div>
+
+            <!-- Banker Profit Share -->
+            <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px;">
+                <div style="font-weight: 600; font-size: 13px; margin-bottom: 6px;">&#x1F4B0; Banker Profit Share</div>
+
+                <!-- Profit stats row -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+                    <div style="background: var(--card-bg, #1e1e2e); border: 1px solid var(--border); border-radius: 8px; padding: 6px; text-align: center;">
+                        <div style="font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Week Start</div>
+                        <div style="font-size: 13px; font-weight: 700; color: var(--text);">${{ "%.2f"|format(week_start_balance) }}</div>
+                    </div>
+                    <div style="background: var(--card-bg, #1e1e2e); border: 1px solid var(--border); border-radius: 8px; padding: 6px; text-align: center;">
+                        <div style="font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Bank Now</div>
+                        <div style="font-size: 13px; font-weight: 700; color: var(--text);">${{ "%.2f"|format(current_bank_balance) }}</div>
+                    </div>
+                    <div style="background: var(--card-bg, #1e1e2e); border: 1px solid var(--border); border-radius: 8px; padding: 6px; text-align: center;">
+                        <div style="font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Week Profit</div>
+                        <div style="font-size: 13px; font-weight: 700; color: {% if week_profit > 0 %}#22c55e{% elif week_profit < 0 %}#ef4444{% else %}var(--text){% endif %};">
+                            {% if week_profit >= 0 %}+{% endif %}${{ "%.2f"|format(week_profit) }}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Your cut -->
+                <div style="background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25); border-radius: 8px; padding: 7px 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 11px; color: var(--text-muted);">Your cut (50% of profit):</span>
+                    <span style="font-size: 14px; font-weight: 800; color: #22c55e;">+${{ "%.2f"|format(banker_profit_preview) }}</span>
+                </div>
+
+                {% if week_start_timestamp %}
+                <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 8px; text-align: center;">
+                    Snapshot taken: {{ week_start_timestamp }}
+                </div>
+                {% endif %}
+
+                <!-- Buttons -->
+                <div style="display: flex; gap: 6px;">
+                    <!-- "Pay Students" already pays the profit share automatically — this is just a reminder label -->
+                    <div style="flex: 1; font-size: 10px; color: var(--text-muted); line-height: 1.3; padding: 4px 0;">
+                        Profit share pays out automatically when you click <b>&#x25B6; Pay Students</b>.
+                    </div>
+                    <form method="POST" action="/snapshot_bank_balance" style="flex-shrink: 0;">
+                        <button type="submit"
+                                onclick="return confirm('Reset the week snapshot to today\'s bank balance (${{ \"%.2f\"|format(current_bank_balance) }})? This starts a new profit tracking week.')"
+                                style="padding: 7px 10px; background: var(--brand); border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; font-size: 11px; white-space: nowrap; box-shadow: 0 4px 12px rgba(36,191,240,0.3);">
+                            &#x1F4F8; New Week
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
 
         </div>
