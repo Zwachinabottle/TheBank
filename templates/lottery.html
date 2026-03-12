@@ -833,57 +833,6 @@
       gap: 1px;
     }
 
-    /* ── Available Balance + Investments ──
-    .balance-invest-section {
-      width: 100%;
-    }
-
-    .balance-header {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: var(--rounded) var(--rounded) 0 0;
-      padding: 18px 24px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .balance-label {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 1.4px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      margin-bottom: 4px;
-    }
-
-    .balance-amount {
-      font-size: 30px;
-      font-weight: 800;
-      color: var(--text);
-      line-height: 1;
-    }
-
-    .balance-amount .bal-dollar {
-      font-size: 16px;
-      color: var(--text-muted);
-      font-weight: 600;
-      vertical-align: top;
-      line-height: 2.1;
-    }
-
-    .balance-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
-      background: rgba(36,191,240,0.1);
-      border: 1px solid rgba(36,191,240,0.2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-    }
-
     /* Tab bar */
     .invest-tab-bar {
       display: flex;
@@ -1070,7 +1019,30 @@
       font-size: 11px;
     }
 
-    /* ── Winning Numbers Strip ── */
+    /* ── Last Drawing Popup Button ── */
+    .view-drawing-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, rgba(36,191,240,0.10), rgba(245,200,66,0.07));
+      border: 1px solid rgba(36,191,240,0.35);
+      border-radius: 50px;
+      padding: 10px 22px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.2s;
+      margin-bottom: 16px;
+    }
+    .view-drawing-btn:hover {
+      background: linear-gradient(135deg, rgba(36,191,240,0.20), rgba(245,200,66,0.12));
+      border-color: var(--brand);
+      transform: translateY(-1px);
+    }
+
+    /* ── Winning Numbers Strip (used inside modal) ── */
     .winner-strip {
       width: 100%;
       background: linear-gradient(135deg, rgba(36,191,240,0.10), rgba(245,200,66,0.08));
@@ -1348,75 +1320,20 @@
         </div>
       </div>
 
-      <!-- Winning Numbers Display -->
+      <!-- Winning Numbers Popup Button -->
       {% if winning %}
-      <div class="winner-strip">
-        <div class="winner-strip-header">
-          <span class="winner-eyebrow">🎯 Last Drawing Results</span>
-          <span class="winner-date-chip">{{ winning.draw_name }}{% if winning.draw_date %} &middot; {{ winning.draw_date }}{% endif %}</span>
-        </div>
-        <div class="winner-balls">
-          {% for n in winning.numbers %}
-            <span class="ball ball-main">{{ n }}</span>
-          {% endfor %}
-          <span class="ball-sep" style="font-size:18px;margin:0 2px;">+</span>
-          <span class="ball ball-vex" style="width:44px;height:44px;font-size:17px;">{{ winning.vex }}</span>
-        </div>
-        <div class="winner-name">4 Main Numbers (1–8) &nbsp;+&nbsp; Vex Ball (1–10)</div>
-      </div>
+      <button class="view-drawing-btn" id="open-winner-modal">
+        🎯 Last Drawing Results
+        <span class="winner-date-chip">{{ winning.draw_name }}{% if winning.draw_date %} &middot; {{ winning.draw_date }}{% endif %}</span>
+      </button>
       {% endif %}
 
-      <!-- Banker Draw Panel -->
+      <!-- Banker Draw Trigger Button -->
       {% if is_banker %}
-      <div class="banker-panel">
-        <div class="banker-panel-header">
-          <span class="banker-badge">🔑 Banker Controls</span>
-          <span style="font-size:13px;color:var(--text-muted);margin-left:8px;">Set &amp; run the lottery drawing</span>
-        </div>
-        <form method="POST" action="{{ url_for('lottery_draw') }}" id="draw-form">
-          <div class="banker-num-row">
-            <div class="banker-num-field">
-              <label>Ball 1</label>
-              <input type="number" class="banker-num-input" name="n1" min="1" max="8"
-                     value="{% if winning %}{{ winning.numbers[0] }}{% endif %}" required>
-            </div>
-            <div class="banker-num-field">
-              <label>Ball 2</label>
-              <input type="number" class="banker-num-input" name="n2" min="1" max="8"
-                     value="{% if winning %}{{ winning.numbers[1] }}{% endif %}" required>
-            </div>
-            <div class="banker-num-field">
-              <label>Ball 3</label>
-              <input type="number" class="banker-num-input" name="n3" min="1" max="8"
-                     value="{% if winning %}{{ winning.numbers[2] }}{% endif %}" required>
-            </div>
-            <div class="banker-num-field">
-              <label>Ball 4</label>
-              <input type="number" class="banker-num-input" name="n4" min="1" max="8"
-                     value="{% if winning %}{{ winning.numbers[3] }}{% endif %}" required>
-            </div>
-            <span class="banker-sep">+</span>
-            <div class="banker-num-field">
-              <label style="color:#24bff0;">Vex Ball</label>
-              <input type="number" class="banker-num-input vex-input" name="vex" min="1" max="10"
-                     value="{% if winning %}{{ winning.vex }}{% endif %}" required>
-            </div>
-          </div>
-          <div class="banker-name-row">
-            <input type="text" name="draw_name" placeholder="Drawing name (e.g. Week 12)" maxlength="64"
-                   value="{% if winning %}{{ winning.draw_name }}{% endif %}">
-          </div>
-          <div class="banker-actions">
-            <button type="submit" class="banker-save-btn" onclick="document.getElementById('run-flag').value='0'">
-              💾 Save Numbers Only
-            </button>
-            <button type="submit" class="banker-run-btn" onclick="document.getElementById('run-flag').value='1'">
-              🎲 Save &amp; Run Drawing
-            </button>
-          </div>
-          <input type="hidden" name="run_drawing" id="run-flag" value="0">
-        </form>
-      </div>
+      <button class="view-drawing-btn" id="open-banker-modal" style="border-color:rgba(245,200,66,0.5);background:linear-gradient(135deg,rgba(245,200,66,0.10),rgba(245,200,66,0.05));">
+        🔑 Banker Controls
+        <span class="winner-date-chip">Set &amp; Run Drawing</span>
+      </button>
       {% endif %}
 
       <!-- Buy Tickets Button -->
@@ -1529,24 +1446,107 @@
     </div>
   </div>
 
+  <!-- Banker Controls Modal -->
+  {% if is_banker %}
+  <div class="modal-overlay" id="bankerModal">
+    <div class="modal-box" style="max-width:520px;text-align:left;padding:32px 36px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;">
+        <div>
+          <span class="banker-badge">🔑 Banker Controls</span>
+          <div style="font-size:13px;color:var(--text-muted);margin-top:6px;">Set &amp; run the lottery drawing</div>
+        </div>
+        <button class="buy-modal-close" onclick="document.getElementById('bankerModal').classList.remove('open')" aria-label="Close">✕</button>
+      </div>
+      <form method="POST" action="{{ url_for('lottery_draw') }}" id="draw-form">
+        <div class="banker-num-row">
+          <div class="banker-num-field">
+            <label>Ball 1</label>
+            <input type="number" class="banker-num-input" name="n1" min="1" max="9"
+                   value="{% if winning %}{{ winning.numbers[0] }}{% endif %}" required>
+          </div>
+          <div class="banker-num-field">
+            <label>Ball 2</label>
+            <input type="number" class="banker-num-input" name="n2" min="1" max="9"
+                   value="{% if winning %}{{ winning.numbers[1] }}{% endif %}" required>
+          </div>
+          <div class="banker-num-field">
+            <label>Ball 3</label>
+            <input type="number" class="banker-num-input" name="n3" min="1" max="9"
+                   value="{% if winning %}{{ winning.numbers[2] }}{% endif %}" required>
+          </div>
+          <div class="banker-num-field">
+            <label>Ball 4</label>
+            <input type="number" class="banker-num-input" name="n4" min="1" max="9"
+                   value="{% if winning %}{{ winning.numbers[3] }}{% endif %}" required>
+          </div>
+          <span class="banker-sep">+</span>
+          <div class="banker-num-field">
+            <label style="color:#24bff0;">Vex Ball</label>
+            <input type="number" class="banker-num-input vex-input" name="vex" min="1" max="12"
+                   value="{% if winning %}{{ winning.vex }}{% endif %}" required>
+          </div>
+        </div>
+        <div class="banker-name-row">
+          <input type="text" name="draw_name" placeholder="Drawing name (e.g. Week 12)" maxlength="64"
+                 value="{% if winning %}{{ winning.draw_name }}{% endif %}">
+        </div>
+        <div class="banker-actions">
+          <button type="submit" class="banker-save-btn" onclick="document.getElementById('run-flag').value='0'">
+            💾 Save Numbers Only
+          </button>
+          <button type="submit" class="banker-run-btn" onclick="document.getElementById('run-flag').value='1'">
+            🎲 Save &amp; Run Drawing
+          </button>
+        </div>
+        <input type="hidden" name="run_drawing" id="run-flag" value="0">
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Winner Numbers Modal -->
+  {% if winning %}
+  <div class="modal-overlay" id="winnerModal">
+    <div class="modal-box" style="max-width:460px;">
+      <div class="modal-trophy">🎯</div>
+      <h2 style="margin-bottom:6px;">Last Drawing Results</h2>
+      <p style="margin-bottom:20px;">
+        {{ winning.draw_name }}{% if winning.draw_date %} &middot; {{ winning.draw_date }}{% endif %}
+      </p>
+      <div class="winner-balls" style="justify-content:center;margin-bottom:20px;">
+        {% for n in winning.numbers %}
+          <span class="ball ball-main" style="width:50px;height:50px;font-size:20px;">{{ n }}</span>
+        {% endfor %}
+        <span class="ball-sep" style="font-size:22px;margin:0 4px;">+</span>
+        <span class="ball ball-vex" style="width:50px;height:50px;font-size:20px;">{{ winning.vex }}</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:24px;">
+        4 Main Numbers (1–9) &nbsp;+&nbsp; Vex Ball (1–12)
+      </p>
+      <button class="modal-close-btn" onclick="document.getElementById('winnerModal').classList.remove('open')">Close</button>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Info Modal -->
   <div class="modal-overlay" id="prizeModal">
     <div class="modal-box">
       <div class="modal-trophy">❓</div>
       <h2>How It Works</h2>
       <p>
-        Each ticket costs <strong>$2</strong>. Pick <strong>4 unique numbers (1–8)</strong> and a <strong>Vex Ball (1–10)</strong>.
+        Each ticket costs <strong>$2</strong>. Pick <strong>4 unique numbers (1–9)</strong> and a <strong>Vex Ball (1–12)</strong>.
         <br><br>
         <strong>Prizes:</strong><br>
-        🔵 Vex Ball only → <strong>$2 refund</strong><br>
-        🟡 All 4 numbers (any order, no Vex Ball) → <strong>$50</strong><br>
-        🌟 All 4 numbers (any order) + Vex Ball → <strong>Jackpot</strong>
+        🔵 Vex Ball only &rarr; <strong>$2 refund</strong><br>
+        🟠 2 numbers + Vex Ball &rarr; <strong>$50</strong><br>
+        🟡 3 numbers + Vex Ball &rarr; <strong>$100</strong><br>
+        🟢 All 4 numbers (no Vex Ball) &rarr; <strong>$20</strong><br>
+        🌟 All 4 numbers + Vex Ball &rarr; <strong>Jackpot</strong> (split among all jackpot winners)
         <br><br>
-        <strong>Jackpot Odds:</strong> 1 in 700<br>
-        <span style="font-size:12px;color:var(--text-muted);">C(8,4) × 10 = 70 × 10 = 700 possible combinations</span>
+        <strong>Jackpot Odds:</strong> 1 in 1,512<br>
+        <span style="font-size:12px;color:var(--text-muted);">C(9,4) &times; 12 = 126 &times; 12 = 1,512 possible combinations</span>
         <br><br>
-        <br>
-        The more tickets you buy, the bigger the community involvement prize and the better your chances!
+        The more tickets you buy, the bigger the community prize and the better your chances!
       </p>
       <button class="modal-close-btn" onclick="document.getElementById('prizeModal').classList.remove('open')">Got it!</button>
     </div>
@@ -1579,6 +1579,26 @@
       const r = await fetch('/toggle-theme', { method: 'POST' });
       if (r.ok) { const d = await r.json(); applyTheme(d.theme); }
     });
+
+    // ── Winner Numbers modal ──────────────────────────────────
+    const winnerModalBtn = document.getElementById('open-winner-modal');
+    const winnerModal    = document.getElementById('winnerModal');
+    if (winnerModalBtn && winnerModal) {
+      winnerModalBtn.addEventListener('click', () => winnerModal.classList.add('open'));
+      winnerModal.addEventListener('click', function(e) {
+        if (e.target === this) this.classList.remove('open');
+      });
+    }
+
+    // ── Banker Controls modal ─────────────────────────────────
+    const bankerModalBtn = document.getElementById('open-banker-modal');
+    const bankerModal    = document.getElementById('bankerModal');
+    if (bankerModalBtn && bankerModal) {
+      bankerModalBtn.addEventListener('click', () => bankerModal.classList.add('open'));
+      bankerModal.addEventListener('click', function(e) {
+        if (e.target === this) this.classList.remove('open');
+      });
+    }
 
     // ── Info modal (? badge) ─────────────────────────────────
     document.getElementById('mystery-btn').addEventListener('click', () => {
@@ -1624,16 +1644,16 @@
           <span class="pt-label" style="min-width:44px;">🎟️ ${i + 1}</span>
           <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
             <div style="display:flex;gap:4px;">
-              <input type="number" class="pt-input pt-n1" min="1" max="8" placeholder="1–8">
-              <input type="number" class="pt-input pt-n2" min="1" max="8" placeholder="1–8">
-              <input type="number" class="pt-input pt-n3" min="1" max="8" placeholder="1–8">
-              <input type="number" class="pt-input pt-n4" min="1" max="8" placeholder="1–8">
+              <input type="number" class="pt-input pt-n1" min="1" max="9" placeholder="1–9">
+              <input type="number" class="pt-input pt-n2" min="1" max="9" placeholder="1–9">
+              <input type="number" class="pt-input pt-n3" min="1" max="9" placeholder="1–9">
+              <input type="number" class="pt-input pt-n4" min="1" max="9" placeholder="1–9">
             </div>
-            <span style="font-size:9px;color:#f5c842;font-weight:700;letter-spacing:.5px;">4 UNIQUE NUMBERS (1–8)</span>
+            <span style="font-size:9px;color:#f5c842;font-weight:700;letter-spacing:.5px;">4 UNIQUE NUMBERS (1–9)</span>
           </div>
           <span class="pt-sep" style="margin:0 4px;">+</span>
           <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-            <input type="number" class="pt-input pt-vex vex-input" min="1" max="10" placeholder="1–10">
+            <input type="number" class="pt-input pt-vex vex-input" min="1" max="12" placeholder="1–12">
             <span style="font-size:9px;color:#24bff0;font-weight:700;letter-spacing:.5px;">VEX</span>
           </div>
         `;
@@ -1710,8 +1730,8 @@
           ];
           const vex = parseInt(row.querySelector('.pt-vex').value, 10);
           for (let j = 0; j < nums.length; j++) {
-            if (!(nums[j] >= 1 && nums[j] <= 8)) {
-              alert(`Ticket ${idx + 1}: All 4 numbers must be between 1 and 8.`);
+            if (!(nums[j] >= 1 && nums[j] <= 9)) {
+              alert(`Ticket ${idx + 1}: All 4 numbers must be between 1 and 9.`);
               valid = false; return;
             }
           }
@@ -1720,8 +1740,8 @@
             alert(`Ticket ${idx + 1}: All 4 numbers must be unique.`);
             valid = false; return;
           }
-          if (!(vex >= 1 && vex <= 10)) {
-            alert(`Ticket ${idx + 1}: Vex Ball must be between 1 and 10.`);
+          if (!(vex >= 1 && vex <= 12)) {
+            alert(`Ticket ${idx + 1}: Vex Ball must be between 1 and 12.`);
             valid = false; return;
           }
           tickets.push([...nums, vex]);

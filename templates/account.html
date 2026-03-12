@@ -866,6 +866,8 @@
           <b>
             {% if t.Sender == username %}
               Sent to {{ t.Receiver }}
+            {% elif t.Sender.startswith('DEDUCT:') %}
+              Deducted from your account by {{ t.Sender[7:] }}
             {% else %}
               Received from {{ t.Sender }}
             {% endif %}
@@ -1452,9 +1454,12 @@ async function refreshTransactions() {
         
         // Determine if sent or received
         const isSent = t.Sender === data.username;
-        const transactionText = isSent 
-          ? `Sent to ${t.Receiver}` 
-          : `Received from ${t.Sender}`;
+        const isDeduct = t.Sender.startsWith('DEDUCT:');
+        const transactionText = isSent
+          ? `Sent to ${t.Receiver}`
+          : isDeduct
+            ? `Deducted from your account by ${t.Sender.substring(7)}`
+            : `Received from ${t.Sender}`;
         
         // Build row HTML
         row.innerHTML = `

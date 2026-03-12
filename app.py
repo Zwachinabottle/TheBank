@@ -6,7 +6,7 @@ from datetime import datetime
 from datetime import timedelta
 import time
 import re
-from threading import Lock
+from threading import Lock, Thread
 
 app = Flask(__name__, static_folder='images')
 app.secret_key = "your_secret_key_here"
@@ -167,6 +167,20 @@ try:
 except Exception:
     stock_holdings_sheet = sheet.add_worksheet("StockHoldings", rows=2000, cols=4)
     stock_holdings_sheet.update([["Username", "Company", "InvestedAmount", "NetWorthAtInvestment"]], 'A1:D1')
+
+# Pre-load FundRequests sheet (pending investment fund requests from students).
+try:
+    fund_requests_sheet = sheet.worksheet("FundRequests")
+except Exception:
+    fund_requests_sheet = sheet.add_worksheet("FundRequests", rows=2000, cols=4)
+    fund_requests_sheet.update([["Username", "Amount", "Status", "RequestedAt"]], 'A1:D1')
+
+# Pre-load InvestFunds sheet (approved investment fund balances per user).
+try:
+    invest_funds_sheet = sheet.worksheet("InvestFunds")
+except Exception:
+    invest_funds_sheet = sheet.add_worksheet("InvestFunds", rows=1000, cols=2)
+    invest_funds_sheet.update([["Username", "Balance"]], 'A1:B1')
 
 # Ensure Transactions sheet has a proper header row
 trans_required_headers = ["Sender", "Receiver", "Amount", "Date", "Comment"]
@@ -544,6 +558,14 @@ def transfer_money(sender, receiver, amount, comment):
         retry_with_backoff(batch_update)
         add_transaction(sender, receiver, amount, comment)
 
+        # 1% transaction fee — created as new money added to the bank account
+        fee = round(amount * 0.01, 2)
+        if fee > 0:
+            bank_account = get_bank_account()
+            bank_balance = float(bank_account.get("Balance", 0))
+            update_bank_balance(bank_balance + fee)
+            add_transaction("System", "Bank", fee, f"1% transaction fee on transfer from {sender} to {receiver}")
+
         cache.invalidate(
             "all_users",
             f"user_balance_{sender}",
@@ -551,6 +573,7 @@ def transfer_money(sender, receiver, amount, comment):
             f"user_data_{sender}",
             f"user_data_{receiver}"
         )
+        cache.invalidate("bank_account")
 
         return "success"
 
@@ -832,6 +855,11 @@ def recalculate_federal_reserve():
 
     for u in users:
         try:
+            # Skip lottery pool accounts — they are internal fund buckets,
+            # not real money in the economy
+            if u.get("AccountType") == "LotteryFund":
+                continue
+
             # Safely convert balance, skip if invalid
             balance_val = u.get("Balance", 0)
             if balance_val == "" or balance_val is None:
@@ -877,26 +905,11 @@ def recalculate_federal_reserve():
     except:
         pass  # If loans sheet doesn't exist or error, default to 0
     
-    # Calculate total CASH BURNED (approved cash burns that removed money from economy)
-    total_cash_burned = 0
-    
-    try:
-        def fetch_cashburns():
-            return cashburns_sheet.get_all_records()
-        
-        cashburns = retry_with_backoff(fetch_cashburns)
-        
-        for burn in cashburns:
-            if burn.get("Status") == "Approved":
-                total_cash_burned += float(burn.get("Amount", 0))
-    except:
-        pass  # If CashBurns sheet doesn't exist or error, default to 0
-    
     # CALCULATION LOGIC:
-    # Total Money Created = Money in Accounts + Money Loaned Out (still owed) + Cash Burned + Loan Repayments
+    # Total Money Created = Money in Accounts + Money Loaned Out (still owed) + Loan Repayments
     # This represents ALL money that has ever entered the economy
     
-    total_money_created = total_in_accounts + (total_loaned_out - total_loan_repaid) + total_cash_burned
+    total_money_created = total_in_accounts + (total_loaned_out - total_loan_repaid)
     
     # Cash = Money that was loaned out but not yet in circulation (original loan amounts minus repayments)
     # This is money the Federal Reserve "created" via loans
@@ -925,9 +938,6 @@ def recalculate_federal_reserve():
     
     # Loaned = Total amount currently loaned out (not yet repaid)
     loaned = round(cash_outstanding, 2)
-    
-    # Cash = Total cash burned (money removed from economy)
-    cash = round(total_cash_burned, 2)
 
     # Update Federal Reserve sheet
     set_fed_value("Total", round(total_money_created, 2))
@@ -935,7 +945,6 @@ def recalculate_federal_reserve():
     set_fed_value("Student", round(student_money, 2))
     set_fed_value("Teacher", round(teacher_money, 2))
     set_fed_value("Liquidity", liquidity)
-    set_fed_value("Cash", cash)
     set_fed_value("Loaned", loaned)
     set_fed_value("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M"))
     
@@ -1823,6 +1832,65 @@ def get_user_investment_holdings(username):
     return holdings
 
 
+def get_investment_fund_balance(username):
+    """Return the current approved investment fund balance for a user."""
+    cache_key = f"inv_fund_{username}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        def fetch():
+            return invest_funds_sheet.get_all_records()
+        rows = retry_with_backoff(fetch)
+        for row in rows:
+            if row.get("Username") == username:
+                bal = float(row.get("Balance", 0) or 0)
+                cache.set(cache_key, bal)
+                return bal
+    except Exception:
+        pass
+    cache.set(cache_key, 0.0)
+    return 0.0
+
+
+def update_investment_fund_balance(username, delta):
+    """Add delta (positive to credit, negative to deduct) to a user's investment fund."""
+    def _update():
+        rows = invest_funds_sheet.get_all_values()
+        for idx, row in enumerate(rows[1:], start=2):
+            if row and row[0] == username:
+                current = float(row[1]) if len(row) > 1 and row[1] else 0.0
+                new_bal = max(0.0, round(current + delta, 2))
+                invest_funds_sheet.update_cell(idx, 2, new_bal)
+                return
+        # New user — append row
+        new_bal = max(0.0, round(delta, 2))
+        invest_funds_sheet.append_row([username, new_bal])
+    retry_with_backoff(_update)
+    cache.invalidate(f"inv_fund_{username}")
+
+
+def get_pending_fund_requests():
+    """Return list of pending investment fund requests for the Federal Reserve."""
+    cache_key = "pending_fund_requests"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        def fetch():
+            return fund_requests_sheet.get_all_records()
+        rows = retry_with_backoff(fetch)
+        result = [
+            {"row": i + 2, **row}
+            for i, row in enumerate(rows)
+            if row.get("Status") == "Pending"
+        ]
+        cache.set(cache_key, result)
+        return result
+    except Exception:
+        return []
+
+
 def invest_in_company(username, company_name, amount):
     """
     Invest `amount` dollars from `username`'s balance into `company_name`.
@@ -1842,14 +1910,16 @@ def invest_in_company(username, company_name, amount):
         if company["netWorth"] <= 0:
             return "no_net_worth"
 
-        balance = get_user_balance(username)
-        if balance < amount:
+        fund_balance = get_investment_fund_balance(username)
+        if fund_balance <= 0:
+            return "no_fund"
+        if amount > fund_balance:
             return "insufficient_balance"
 
-        # Deduct from user balance
-        update_balance(username, round(balance - amount, 2))
+        # Deduct entirely from the investment fund
+        update_investment_fund_balance(username, -round(amount, 2))
         add_transaction(username, "INVESTMENTS", amount,
-                        f"Invested ${amount:.2f} in {company_name}")
+                        f"Invested ${amount:.2f} in {company_name} (from Investment Fund)")
 
         # Update holdings (weighted average if already invested)
         def update_holdings():
@@ -3275,34 +3345,26 @@ def get_ads(page=None):
 @app.route("/federalreserve")
 @role_required("Banker")
 def federal_reserve():
-    recalculate_federal_reserve()
+    # Trigger recalculation in the background so the page loads immediately
+    # from cache while stats are updated asynchronously.
+    Thread(target=recalculate_federal_reserve, daemon=True).start()
     data = get_federal_reserve_stats()
     users = get_all_users_with_balances()
-    
-    # Sanitize user data - ensure Balance is a float
+
+    # Sanitize user balances for display
     sanitized_users = []
     for u in users:
+        user_copy = u.copy()
         try:
-            # Create a copy of the user dict
-            user_copy = u.copy()
-            # Safely convert balance to float
             balance_val = u.get("Balance", 0)
-            if balance_val == "" or balance_val is None:
-                user_copy["Balance"] = 0.0
-            else:
-                user_copy["Balance"] = float(balance_val)
-            sanitized_users.append(user_copy)
+            user_copy["Balance"] = 0.0 if (balance_val == "" or balance_val is None) else float(balance_val)
         except (ValueError, TypeError):
-            # If conversion fails, log and skip this user or set balance to 0
-            print(f"Warning: Invalid balance for user {u.get('Username', 'Unknown')}: {u.get('Balance', 'N/A')}")
-            user_copy = u.copy()
             user_copy["Balance"] = 0.0
-            sanitized_users.append(user_copy)
-    
+        sanitized_users.append(user_copy)
+
     pending_loans = get_pending_loans()
     all_loans = get_all_loans()
     pending_deletions = get_pending_deletions()
-    pending_cashburns = get_pending_cash_burns()
     pending_teacher_requests = get_pending_teacher_requests()
     pending_role_changes = get_pending_role_change_requests()
     logs = get_logs()
@@ -3321,6 +3383,7 @@ def federal_reserve():
     inv_data = get_investments_data()
     inv_all_weeks = inv_data["allWeeks"]
     inv_current_week = inv_data["currentWeek"]
+    pending_fund_requests = get_pending_fund_requests()
 
     return render_template("federalreserve.html", 
                          data=data, 
@@ -3328,7 +3391,6 @@ def federal_reserve():
                          pending_loans=pending_loans,
                          all_loans=all_loans,
                          pending_deletions=pending_deletions,
-                         pending_cashburns=pending_cashburns,
                          pending_teacher_requests=pending_teacher_requests,
                          pending_role_changes=pending_role_changes,
                          logs=logs,
@@ -3339,7 +3401,8 @@ def federal_reserve():
                          teacher_pin=teacher_pin,
                          all_ads=all_ads,
                          inv_all_weeks=inv_all_weeks,
-                         inv_current_week=inv_current_week)
+                         inv_current_week=inv_current_week,
+                         pending_fund_requests=pending_fund_requests)
 
 @app.route("/repair_user_data")
 @role_required("Banker")
@@ -3542,6 +3605,65 @@ def transfer_from_bank():
     flash(f"Successfully transferred ${amount:.2f} to {recipient}!", "success")
     cache.invalidate_pattern("bank")
     cache.invalidate_pattern("users")
+    return redirect(url_for("federal_reserve"))
+
+@app.route("/backfill_transaction_fees", methods=["GET", "POST"], strict_slashes=False)
+@role_required("Banker")
+def backfill_transaction_fees():
+    """Retroactively credit the bank 1% for all past transactions that haven't been fee'd yet."""
+    if request.method == "GET":
+        return redirect(url_for("federal_reserve"))
+    try:
+        all_txns = get_all_transactions_raw()
+
+        # Sum amounts for all real transfers — skip existing fee entries to avoid double-counting
+        total_fee = 0.0
+        skipped = 0
+        counted = 0
+        for txn in all_txns:
+            sender   = str(txn.get("Sender", ""))
+            receiver = str(txn.get("Receiver", ""))
+            comment  = str(txn.get("Comment", ""))
+            # Skip entries that are already fee transactions
+            if sender == "System" and receiver == "Bank" and "1% transaction fee" in comment:
+                skipped += 1
+                continue
+            # Skip bank-internal transfers (Bank→user, user→Bank Transfer)
+            if sender == "Bank" or receiver == "Bank" or sender == "System":
+                skipped += 1
+                continue
+            try:
+                amt = float(txn.get("Amount", 0))
+            except (ValueError, TypeError):
+                continue
+            if amt > 0:
+                total_fee += round(amt * 0.01, 2)
+                counted += 1
+
+        total_fee = round(total_fee, 2)
+
+        if total_fee <= 0:
+            flash("No eligible past transactions found to backfill.", "info")
+            return redirect(url_for("federal_reserve"))
+
+        # Add the total fee to the bank balance as created money
+        bank_account = get_bank_account()
+        bank_balance = float(bank_account.get("Balance", 0))
+        update_bank_balance(bank_balance + total_fee)
+        add_transaction("System", "Bank", total_fee,
+                        f"Historical 1% fee backfill — {counted} past transactions")
+
+        log_action(session["user"],
+                   f"Backfilled historical 1% fees: ${total_fee:.2f} from {counted} transactions",
+                   total_fee, "Approved")
+
+        cache.invalidate("bank_account", "all_transactions_raw", "fed_stats")
+        cache.invalidate_pattern("bank")
+
+        flash(f"Successfully added ${total_fee:.2f} to the bank (1% of {counted} past transactions).", "success")
+    except Exception as e:
+        flash(f"Error during backfill: {e}", "error")
+
     return redirect(url_for("federal_reserve"))
 
 @app.route("/save_system_setting", methods=["POST"])
@@ -3786,6 +3908,7 @@ def adjust_money():
     username = request.form["username"]
     amount = float(request.form["amount"])
     action = request.form["action"]
+    comment = request.form.get("comment", "").strip()
     
     # Validate amount is positive
     if amount <= 0:
@@ -3796,10 +3919,14 @@ def adjust_money():
     
     if action == "add":
         new_balance = current_balance + amount
-        log_action(session["user"], f"Added ${amount} to {username}", amount, "Approved")
+        log_msg = f"Added ${amount} to {username}" + (f" — {comment}" if comment else "")
+        log_action(session["user"], log_msg, amount, "Approved")
+        add_transaction(session["user"], username, amount, comment or "Teacher adjustment")
     else:
         new_balance = current_balance - amount
-        log_action(session["user"], f"Subtracted ${amount} from {username}", amount, "Approved")
+        log_msg = f"Subtracted ${amount} from {username}" + (f" — {comment}" if comment else "")
+        log_action(session["user"], log_msg, amount, "Approved")
+        add_transaction(f"DEDUCT:{session['user']}", username, amount, comment or "Teacher deduction")
     
     update_balance(username, new_balance)
     cache.invalidate(f"transactions_{username}")
@@ -3811,6 +3938,7 @@ def adjust_money():
 def set_money():
     username = request.form["username"]
     amount = float(request.form["amount"])
+    comment = request.form.get("comment", "").strip()
     
     # Validate amount is not negative (can be zero to clear balance)
     if amount < 0:
@@ -3818,7 +3946,8 @@ def set_money():
         return redirect(url_for("teacher_tools"))
     
     update_balance(username, amount)
-    log_action(session["user"], f"Set balance to ${amount} for {username}", amount, "Approved")
+    log_msg = f"Set balance to ${amount} for {username}" + (f" — {comment}" if comment else "")
+    log_action(session["user"], log_msg, amount, "Approved")
     cache.invalidate(f"transactions_{username}")
     
     flash(f"Balance set to ${amount} for {username}")
@@ -4173,7 +4302,7 @@ def lottery_buy():
     update_balance(username, new_user_bal)
 
     # ── Distribute to pools (70 / 20 / 10) ───────────────────
-    prize_cut      = round(total_cost * 0.70, 2)
+    prize_cut      = round(total_cost * 0.50, 2)
     employment_cut = round(total_cost * 0.20, 2)
     reserve_cut    = round(total_cost - prize_cut - employment_cut, 2)  # absorbs rounding
 
@@ -4229,12 +4358,12 @@ def lottery_draw():
 
     try:
         nums = [
-            int(request.form.get("n1", 0) or 0),
-            int(request.form.get("n2", 0) or 0),
-            int(request.form.get("n3", 0) or 0),
-            int(request.form.get("n4", 0) or 0),
+            int(request.form.get("n1", 0)),
+            int(request.form.get("n2", 0)),
+            int(request.form.get("n3", 0)),
+            int(request.form.get("n4", 0)),
         ]
-        vex       = int(request.form.get("vex", 0) or 0)
+        vex       = int(request.form.get("vex", 0))
         draw_name = request.form.get("draw_name", "").strip()
         run       = request.form.get("run_drawing") == "1"
     except (ValueError, TypeError):
@@ -4253,14 +4382,9 @@ def lottery_draw():
         flash("Vex Ball must be between 1 and 10.", "error")
         return redirect(url_for("lottery"))
 
-    try:
-        set_lottery_winning(nums, vex, draw_name)
-    except Exception as exc:
-        app.logger.error("set_lottery_winning failed: %s", exc, exc_info=True)
-        flash(f"Could not save winning numbers: {exc}", "error")
-        return redirect(url_for("lottery"))
+    set_lottery_winning(nums, vex, draw_name)
 
-    def _do_drawing():
+    if run:
         winning_set = set(nums)
         winners_jackpot = []
         winners_match   = []
@@ -4329,7 +4453,6 @@ def lottery_draw():
 
         # ── Mark all Active tickets as drawn ─────────────────────
         label = draw_name or datetime.now().strftime("%Y-%m-%d")
-        sheet_title = lottery_sheet.title
 
         def _mark_done():
             all_vals = lottery_sheet.get_all_values()
@@ -4344,14 +4467,11 @@ def lottery_draw():
                 if len(row) > drawing_col and row[drawing_col] == "Active":
                     col_letter = chr(65 + drawing_col)
                     batch.append({
-                        "range":  f"'{sheet_title}'!{col_letter}{row_idx}",
+                        "range":  f"{col_letter}{row_idx}",
                         "values": [[label]],
                     })
             if batch:
-                lottery_sheet.spreadsheet.values_batch_update({
-                    "valueInputOption": "RAW",
-                    "data": batch,
-                })
+                lottery_sheet.batch_update(batch)
 
         retry_with_backoff(_mark_done)
 
@@ -4371,13 +4491,6 @@ def lottery_draw():
             f"Vex-only: {len(set(winners_vex))}",
             "success",
         )
-
-    if run:
-        try:
-            _do_drawing()
-        except Exception as exc:
-            app.logger.error("lottery drawing failed: %s", exc, exc_info=True)
-            flash(f"Drawing error: {exc}", "error")
     else:
         flash(
             f"Winning numbers saved: "
@@ -4417,8 +4530,9 @@ def stocks():
     if not inv_data["companies"]:
         cache.invalidate("investments_data")
         inv_data = get_investments_data()
-    holdings  = get_user_investment_holdings(username)
-    balance   = get_user_balance(username)
+    holdings     = get_user_investment_holdings(username)
+    balance      = get_user_balance(username)
+    fund_balance = get_investment_fund_balance(username)
 
     # Map company name → holding for template lookup
     holdings_map = {h["Company"]: h for h in holdings}
@@ -4439,6 +4553,7 @@ def stocks():
         holdings_map=holdings_map,
         portfolio_value=round(portfolio_value, 2),
         balance=balance,
+        fund_balance=fund_balance,
     )
 
 
@@ -4458,8 +4573,10 @@ def stocks_buy():
     result = invest_in_company(username, company_name, amount)
     if result == "success":
         flash(f"Successfully invested ${amount:.2f} in {company_name}!", "success")
+    elif result == "no_fund":
+        flash("You don't have an investment fund. Request funds from your banker first.", "error")
     elif result == "insufficient_balance":
-        flash("Insufficient balance to complete this investment.", "error")
+        flash("Amount exceeds your available investment fund balance.", "error")
     elif result == "company_not_found":
         flash("Company not found.", "error")
     elif result == "no_net_worth":
@@ -4500,6 +4617,72 @@ def stocks_sell():
         flash("Transaction failed. Please try again.", "error")
 
     return redirect(url_for("stocks"))
+
+
+@app.route("/stocks/request_fund", methods=["POST"])
+def stocks_request_fund():
+    """Student submits an investment fund request for banker approval.
+    No money moves until the banker approves — then it is added to their
+    investment fund balance which stacks across multiple approvals."""
+    if "user" not in session:
+        return redirect(url_for("login"))
+    username = session["user"]
+    try:
+        amount = round(float(request.form.get("amount", 0)), 2)
+    except ValueError:
+        flash("Invalid amount.", "error")
+        return redirect(url_for("stocks"))
+    if amount < 1 or amount > 500:
+        flash("Fund request must be between $1 and $500.", "error")
+        return redirect(url_for("stocks"))
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def append():
+        fund_requests_sheet.append_row([username, amount, "Pending", now])
+    retry_with_backoff(append)
+    cache.invalidate("pending_fund_requests")
+    flash(f"Investment fund request of ${amount:.2f} sent to your banker 🪙 You’ll be able to invest once it’s approved!", "info")
+    return redirect(url_for("stocks"))
+
+
+@app.route("/approve_fund_request/<int:row_index>", methods=["POST"])
+@role_required("Banker")
+def approve_fund_request(row_index):
+    """Approve an investment fund request — add the amount to the student’s fund balance."""
+    try:
+        def get_and_approve():
+            row = fund_requests_sheet.row_values(row_index)
+            uname  = row[0] if len(row) > 0 else ""
+            amt    = float(row[1]) if len(row) > 1 and row[1] else 0.0
+            fund_requests_sheet.update_cell(row_index, 3, "Approved")
+            return uname, amt
+        username, amount = retry_with_backoff(get_and_approve)
+        if username and amount > 0:
+            update_investment_fund_balance(username, amount)
+            new_total = get_investment_fund_balance(username)
+            log_action(session["user"], f"Approved investment fund of ${amount:.2f} for {username} (total fund: ${new_total:.2f})", amount, "Approved")
+            flash(f"Approved ${amount:.2f} investment fund for {username}. Their fund total is now ${new_total:.2f}.", "success")
+        cache.invalidate("pending_fund_requests")
+    except Exception as e:
+        flash(f"Error approving fund request: {str(e)}", "error")
+    return redirect(url_for("federal_reserve"))
+
+
+@app.route("/deny_fund_request/<int:row_index>", methods=["POST"])
+@role_required("Banker")
+def deny_fund_request(row_index):
+    """Deny an investment fund request."""
+    try:
+        def get_and_deny():
+            row = fund_requests_sheet.row_values(row_index)
+            uname = row[0] if len(row) > 0 else "Unknown"
+            fund_requests_sheet.update_cell(row_index, 3, "Denied")
+            return uname
+        username = retry_with_backoff(get_and_deny)
+        cache.invalidate("pending_fund_requests")
+        flash(f"Denied investment fund request for {username}.", "info")
+    except Exception as e:
+        flash(f"Error: {str(e)}", "error")
+    return redirect(url_for("federal_reserve"))
 
 
 @app.route("/api/stocks")

@@ -1038,6 +1038,7 @@
             <div class="table-container" id="loans-container">
                 <table id="loans-table">
                     {% for loan in loans %}
+                    {% if loan.Status|lower != 'denied' %}
                     <tr>
                         <td>
                             <b>{{ loan.Requester }}</b>
@@ -1048,6 +1049,7 @@
                         <td style="color:var(--text-muted); font-size: 13px;">{{ loan.Reason }}</td>
                         <td style="font-size: 12px; color: var(--text-muted);">{{ loan.Date }}</td>
                     </tr>
+                    {% endif %}
                     {% endfor %}
                 </table>
             </div>
@@ -1150,6 +1152,7 @@
                 
                 <input type="hidden" id="moneyAction" name="action" value="add">
                 <input type="number" id="moneyAmount" name="amount" step="0.01" min="0.01" placeholder="Amount" required>
+                <textarea name="comment" placeholder="Comment (optional)" rows="2" style="resize:vertical;"></textarea>
                 <button type="submit">Confirm</button>
                 <button type="button" class="close-modal" onclick="closeModal('moneyModal')">Cancel</button>
             </form>
@@ -1163,6 +1166,7 @@
             <form method="POST" action="/set_money">
                 <input type="hidden" id="setMoneyUsername" name="username">
                 <input type="number" id="setMoneyAmount" name="amount" step="0.01" min="0" placeholder="New Balance" required>
+                <textarea name="comment" placeholder="Comment (optional)" rows="2" style="resize:vertical;"></textarea>
                 <button type="submit">Set Balance</button>
                 <button type="button" class="close-modal" onclick="closeModal('setMoneyModal')">Cancel</button>
             </form>

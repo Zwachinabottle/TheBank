@@ -584,8 +584,29 @@
     .bank-admin-content {
       flex: 1;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 4px;
+    }
+
+    .bank-admin-content::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .bank-admin-content::-webkit-scrollbar-track {
+      background: var(--bg2);
+      border-radius: 4px;
+    }
+
+    .bank-admin-content::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    .bank-admin-content::-webkit-scrollbar-thumb:hover {
+      background: var(--brand);
     }
 
     .bank-admin-content .stats-box {
@@ -1141,7 +1162,13 @@
 
     /* ── Responsive ─────────────────────────────────────── */
     @media (max-width: 1100px) {
-      .arrow { display: none; }
+      .arrow-left { left: -55px; }
+      .arrow-right { right: -55px; }
+    }
+
+    @media (max-width: 1000px) {
+      .arrow-left { left: -40px; }
+      .arrow-right { right: -40px; }
     }
 
     @media (max-width: 900px) {
@@ -1516,21 +1543,21 @@
             {% endif %}
           </div>
 
-          <!-- Cash Burn Requests -->
+          <!-- Investment Fund Requests -->
           <div class="utility-box">
-            <h3>Cash Burn Requests</h3>
-            {% if pending_cashburns %}
+            <h3>🪙 Investment Fund Requests</h3>
+            {% if pending_fund_requests %}
             <table class="utility-table">
-              {% for burn in pending_cashburns %}
+              {% for req in pending_fund_requests %}
               <tr>
-                <td><b>{{ burn.Requester }}</b></td>
-                <td>${{ "%.2f"|format(burn.Amount) }}</td>
-                <td style="color: var(--text-muted); font-size: 13px;">{{ burn.Reason }}</td>
+                <td><b>{{ req.Username }}</b></td>
+                <td>${{ "%.2f"|format(req.Amount) }}</td>
+                <td style="color: var(--text-muted); font-size: 13px;">{{ req.RequestedAt }}</td>
                 <td style="text-align: right;">
-                  <form method="POST" action="/approve_cashburn/{{ burn.row }}" style="display:inline;">
+                  <form method="POST" action="/approve_fund_request/{{ req.row }}" style="display:inline;">
                     <button type="submit" class="approve-btn">Approve</button>
                   </form>
-                  <form method="POST" action="/deny_cashburn/{{ burn.row }}" style="display:inline;">
+                  <form method="POST" action="/deny_fund_request/{{ req.row }}" style="display:inline;">
                     <button type="submit" class="deny-btn">Deny</button>
                   </form>
                 </td>
@@ -1538,7 +1565,7 @@
               {% endfor %}
             </table>
             {% else %}
-            <p style="color: var(--text-muted); text-align: center;">No pending cash burns</p>
+            <p style="color: var(--text-muted); text-align: center;">No pending fund requests</p>
             {% endif %}
           </div>
 
@@ -1832,6 +1859,18 @@
                     <input type="text" name="reason" placeholder="Reason (e.g., Grant, reward)" required>
                   </div>
                   <button type="submit" style="width: 100%;">Transfer Money</button>
+                </form>
+              </div>
+
+              <!-- Backfill Historical Fees Section -->
+              <div style="margin-bottom: 20px; padding: 16px; background: rgba(36,191,240,0.07); border: 1px solid var(--border); border-radius: var(--rounded);">
+                <h4 style="margin: 0 0 8px 0; color: var(--text);">🕓 Backfill Historical Transaction Fees</h4>
+                <p style="margin: 0 0 12px 0; font-size: 13px; color: var(--text-muted);">
+                  Scans all past transactions and adds the missing 1% fee to the bank balance as created money.
+                  Safe to run once — already-processed fee entries are automatically skipped.
+                </p>
+                <form method="POST" action="/backfill_transaction_fees" onsubmit="return confirm('Apply 1% historical fee backfill to the bank? This is safe to run once.');">
+                  <button type="submit" style="width: 100%; background: rgba(36,191,240,0.15); border: 1px solid var(--brand);">Run Backfill</button>
                 </form>
               </div>
 
@@ -2518,7 +2557,7 @@
           html += `
             <div class="transaction-item ${isSent ? 'sent' : 'received'}">
               <div class="transaction-header">
-                <span>${isSent ? 'Sent to ' + t.Receiver : 'Received from ' + t.Sender}</span>
+                <span>${isSent ? 'Sent to ' + t.Receiver : t.Sender.startsWith('DEDUCT:') ? 'Deducted from ' + t.Receiver + ' by ' + t.Sender.substring(7) : 'Received from ' + t.Sender}</span>
                 <span class="transaction-amount ${isSent ? 'negative' : 'positive'}">
                   ${isSent ? '-' : '+'}$${amount.toFixed(2)}
                 </span>
@@ -2704,8 +2743,6 @@
                   // Set appropriate message based on form action
                   if (actionUrl.includes('loan')) {
                     noDataMsg.textContent = 'No pending loans';
-                  } else if (actionUrl.includes('cashburn')) {
-                    noDataMsg.textContent = 'No pending cash burns';
                   } else if (actionUrl.includes('teacher')) {
                     noDataMsg.textContent = 'No pending teacher requests';
                   } else {
@@ -2934,7 +2971,6 @@
     document.addEventListener('DOMContentLoaded', () => {
       const forms = document.querySelectorAll(
         'form[action*="/approve_loan/"], form[action*="/deny_loan/"], ' +
-        'form[action*="/approve_cashburn/"], form[action*="/deny_cashburn/"], ' +
         'form[action*="/approve_teacher_request/"], form[action*="/deny_teacher_request/"]'
       );
       

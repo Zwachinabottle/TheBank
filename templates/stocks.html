@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en" class="{{ session.get('theme', 'dark') }}-mode" id="html-root">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Stock Floor — Kching Bank</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+
+  <style>
+    /* ── CSS Variables ── */
+    :root {
+      --brand:       #24bff0;
+      --green:       #22c55e;
+      --red:         #ef4444;
+      --yellow:      #f5c842;
+      --bg:          #11191c;
+      --bg2:         #1a2c32;
+      --bg3:         #182429;
+      --text:        #d7e6eb;
+      --text-muted:  #9db6bd;
+      --input-bg:    #243238;
+      --border:      #2e4b52;
+      --rounded:     14px;
+    }
+
+    .light-mode {
+      --bg:          #e7eef2;
+      --bg2:         #f5f8fa;
+      --bg3:         #ffffff;
+      --text:        #1b1f21;
+      --text-muted:  #556166;
+      --input-bg:    #ecf1f3;
+      --border:      #c7d2d6;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Inter", system-ui;
+      background: var(--bg);
+      color: var(--text);
+      overflow-x: hidden;
+    }
+
+    body {
+      background:
+        radial-gradient(ellipse 900px 400px at 10% 0%, rgba(36,191,240,0.07), transparent 60%),
+        radial-gradient(ellipse 700px 350px at 90% 100%, rgba(34,197,94,0.06), transparent 60%),
+        var(--bg);
+    }
+
+    /* ── Page header ── */
+    .page-header {
+      text-align: center;
+      padding: 48px 20px 10px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(36,191,240,0.12);
+      border: 1px solid rgba(36,191,240,0.3);
+      color: var(--brand);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 6px 16px;
+      border-radius: 50px;
+      margin-bottom: 14px;
+    }
+
+    .page-header h1 {
+      margin: 0 0 10px;
+      font-family: 'Playfair Display', 'Inter', serif;
+      font-size: clamp(26px, 4vw, 46px);
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--text) 30%, var(--brand) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .page-header .subtitle {
+      color: var(--text-muted);
+      font-size: 15px;
+      margin: 0 0 20px;
+    }
+
+    /* ── Balance pill ── */
+    .balance-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 50px;
+      padding: 10px 20px;
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .balance-pill .label { color: var(--text-muted); font-weight: 400; }
+    .balance-pill .amount { color: var(--green); }
+
+    /* ── Main layout ── */
+    .main-container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 20px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+
+    /* ── Section title ── */
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-title .badge {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    /* ── Investment Floor styles ── */
+    .meta-pills { display:flex; justify-content:center; flex-wrap:wrap; gap:10px; margin-bottom:8px; }
+    .meta-pill  { display:inline-flex; align-items:center; gap:6px; background:var(--bg2); border:1px solid var(--border); border-radius:50px; padding:9px 18px; font-size:14px; font-weight:600; }
+    .meta-pill .label { color:var(--text-muted); font-weight:400; }
+    .meta-pill .val   { color:var(--text); }
+    .meta-pill .val.green { color:var(--green); }
+    .meta-pill .val.red   { color:var(--red); }
+    .meta-pill .val.brand { color:var(--brand); }
+
+    .main-container { max-width:1100px; margin:0 auto; padding:28px 20px 90px; display:flex; flex-direction:column; gap:32px; }
+
+    .section-title { font-size:18px; font-weight:700; margin:0 0 16px; display:flex; align-items:center; gap:8px; }
+    .section-title .badge { background:var(--bg2); border:1px solid var(--border); border-radius:20px; padding:3px 10px; font-size:12px; font-weight:600; color:var(--text-muted); }
+
+    .companies-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:16px; }
+
+    .company-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--rounded); padding:20px; transition:border-color 0.2s, box-shadow 0.2s; }
+    .company-card:hover { border-color:var(--brand); box-shadow:0 6px 24px rgba(36,191,240,0.12); }
+
+    .card-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:14px; gap:10px; }
+    .company-name { font-size:16px; font-weight:800; color:var(--text); }
+    .nw-block { text-align:right; }
+    .nw-value { font-size:20px; font-weight:800; margin:0 0 3px; }
+
+    .change-pill { display:inline-block; font-size:12px; font-weight:700; padding:3px 9px; border-radius:20px; }
+    .change-pill.up   { background:rgba(34,197,94,0.15);   color:var(--green); }
+    .change-pill.down { background:rgba(239,68,68,0.15);   color:var(--red); }
+    .change-pill.flat { background:rgba(157,182,189,0.15); color:var(--text-muted); }
+
+    .sparkline-wrap  { margin-bottom:12px; }
+    .sparkline-label { font-size:11px; color:var(--text-muted); margin-bottom:4px; }
+    canvas.sparkline { width:100%; height:48px; display:block; }
+
+    .invested-strip { background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:10px 14px; margin-bottom:12px; display:flex; justify-content:space-between; font-size:13px; gap:8px; flex-wrap:wrap; }
+    .invested-strip .is-label { color:var(--text-muted); }
+    .invested-strip .is-val   { font-weight:700; }
+    .invested-strip .is-pl.pos { color:var(--green); font-weight:700; }
+    .invested-strip .is-pl.neg { color:var(--red);   font-weight:700; }
+
+    .card-actions { display:flex; gap:8px; }
+    .btn-invest   { flex:1; padding:10px; border:none; border-radius:10px; background:linear-gradient(135deg,var(--green),#16a34a); color:#fff; font-size:14px; font-weight:700; cursor:pointer; transition:0.2s; }
+    .btn-invest:hover { box-shadow:0 6px 20px rgba(34,197,94,0.35); transform:translateY(-1px); }
+    .btn-withdraw { flex:1; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--bg3); color:var(--text); font-size:14px; font-weight:700; cursor:pointer; transition:0.2s; }
+    .btn-withdraw:hover:not(:disabled) { border-color:var(--red); color:var(--red); transform:translateY(-1px); }
+    .btn-withdraw:disabled { opacity:0.4; cursor:not-allowed; }
+
+    .portfolio-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--rounded); overflow:hidden; }
+    .portfolio-table-wrap { overflow-x:auto; }
+    .portfolio-table { width:100%; border-collapse:collapse; font-size:14px; }
+    .portfolio-table th { text-align:left; padding:12px 16px; color:var(--text-muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid var(--border); }
+    .portfolio-table td { padding:14px 16px; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .portfolio-table tr:last-child td { border-bottom:none; }
+    .portfolio-table tr:hover td { background:var(--bg3); }
+    .pl-pos { color:var(--green); font-weight:700; }
+    .pl-neg { color:var(--red);   font-weight:700; }
+    .empty-state { padding:40px; text-align:center; color:var(--text-muted); font-size:15px; }
+
+    .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:2000; align-items:center; justify-content:center; }
+    .modal-overlay.open { display:flex; }
+    .modal-box { background:var(--bg2); border:1px solid var(--border); border-radius:20px; padding:34px 38px; width:90%; max-width:420px; box-shadow:0 24px 60px rgba(0,0,0,0.45); animation:popIn 0.25s cubic-bezier(0.34,1.56,0.64,1); }
+    @keyframes popIn { from{transform:scale(0.75);opacity:0} to{transform:scale(1);opacity:1} }
+    .modal-box h2    { margin:0 0 4px; font-size:20px; font-weight:800; }
+    .modal-company   { color:var(--text-muted); font-size:13px; margin:0 0 18px; }
+    .modal-info-row  { display:flex; justify-content:space-between; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:11px 14px; margin-bottom:12px; font-size:14px; }
+    .modal-info-row .mi-label { color:var(--text-muted); }
+    .modal-info-row .mi-val   { font-weight:700; }
+    .modal-box label { display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px; font-weight:600; }
+    .modal-box input[type="number"] { width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--border); background:var(--input-bg); color:var(--text); font-size:16px; font-weight:700; margin-bottom:6px; outline:none; transition:border-color 0.2s; }
+    .modal-box input[type="number"]:focus { border-color:var(--brand); }
+    .modal-preview { font-size:13px; color:var(--text-muted); margin-bottom:18px; min-height:18px; }
+    .modal-preview strong { color:var(--text); }
+    .modal-actions { display:flex; gap:10px; }
+    .modal-submit-invest    { flex:1; padding:13px; border:none; border-radius:10px; background:linear-gradient(135deg,var(--green),#16a34a); color:#fff; font-size:15px; font-weight:700; cursor:pointer; transition:0.2s; }
+    .modal-submit-invest:hover { box-shadow:0 6px 20px rgba(34,197,94,0.35); transform:translateY(-1px); }
+    .modal-submit-withdraw  { flex:1; padding:13px; border:none; border-radius:10px; background:linear-gradient(135deg,var(--red),#b91c1c); color:#fff; font-size:15px; font-weight:700; cursor:pointer; transition:0.2s; }
+    .modal-submit-withdraw:hover { box-shadow:0 6px 20px rgba(239,68,68,0.35); transform:translateY(-1px); }
+    .modal-cancel { padding:13px 18px; border:1px solid var(--border); border-radius:10px; background:transparent; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer; transition:0.2s; }
+    .modal-cancel:hover { border-color:var(--text-muted); color:var(--text); }
+
+    @keyframes fadeOut { to { opacity:0; transform:translateX(420px); } }
+    @media (max-width:600px) {
+      .companies-grid { grid-template-columns:1fr; }
+      .modal-box      { padding:24px 18px; }
+    }
+
+    /* ── Investment Fund Popup ── */
+    .fund-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:2500; align-items:center; justify-content:center; }
+    .fund-overlay.open { display:flex; }
+    .fund-box { background:var(--bg2); border:1px solid var(--border); border-radius:20px; padding:36px 40px; width:90%; max-width:440px; box-shadow:0 28px 70px rgba(0,0,0,0.55); animation:popIn 0.3s cubic-bezier(0.34,1.56,0.64,1); position:relative; }
+    .fund-badge { display:inline-flex; align-items:center; gap:6px; background:rgba(36,191,240,0.12); border:1px solid rgba(36,191,240,0.3); color:var(--brand); font-size:11px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; padding:5px 14px; border-radius:50px; margin-bottom:14px; }
+    .fund-box h2 { margin:0 0 8px; font-size:22px; font-weight:800; }
+    .fund-box p  { color:var(--text-muted); font-size:14px; margin:0 0 20px; line-height:1.6; }
+    .fund-row  { display:flex; justify-content:space-between; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:11px 14px; margin-bottom:10px; font-size:14px; }
+    .fund-row .fr-l { color:var(--text-muted); }
+    .fund-row .fr-v { font-weight:700; }
+    .fund-box label { display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px; font-weight:600; margin-top:14px; }
+    .fund-input { width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--border); background:var(--input-bg,var(--bg3)); color:var(--text); font-size:16px; font-weight:700; outline:none; transition:border-color 0.2s; box-sizing:border-box; margin-bottom:8px; }
+    .fund-input:focus { border-color:var(--brand); }
+    .fund-note { font-size:12px; color:var(--text-muted); margin-bottom:20px; min-height:18px; }
+    .fund-actions { display:flex; flex-direction:column; gap:8px; }
+    .fund-btn-submit { padding:13px; border:none; border-radius:10px; background:linear-gradient(135deg,var(--brand),#0ea5e9); color:#fff; font-size:15px; font-weight:700; cursor:pointer; transition:0.2s; }
+    .fund-btn-submit:hover { box-shadow:0 6px 20px rgba(36,191,240,0.4); transform:translateY(-1px); }
+    .fund-btn-close  { padding:10px; border:1px solid var(--border); border-radius:10px; background:transparent; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer; transition:0.2s; }
+    .fund-btn-close:hover { border-color:var(--text-muted); color:var(--text); }
+    .fund-btn-nsa { padding:6px; border:none; background:transparent; color:var(--text-muted); font-size:12px; cursor:pointer; text-decoration:underline; opacity:0.65; align-self:center; }
+    .fund-btn-nsa:hover { opacity:1; }
+
+    /* ── Floating fund reopener ── */
+    .fund-reopener-btn { position:fixed; bottom:24px; right:24px; height:50px; padding:0 18px; border-radius:12px; background:linear-gradient(135deg,var(--brand),#0ea5e9); border:none; display:flex; align-items:center; gap:8px; cursor:pointer; transition:0.2s; box-shadow:0 4px 12px rgba(36,191,240,0.3); z-index:1600; color:#fff; font-size:14px; font-weight:700; }
+    .fund-reopener-btn:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(36,191,240,0.45); }
+
+    /* ── Theme toggle corner button ── */
+    .theme-toggle-corner {
+      position: fixed;
+      top: 24px; right: 24px;
+      width: 50px; height: 50px;
+      border-radius: 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1600;
+    }
+    .theme-toggle-corner:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.25); }
+    .theme-icon  { width: 24px; height: 24px; transition: 0.3s; }
+    .sun-icon    { display: block; }
+    .moon-icon   { display: none; }
+    .light-mode .sun-icon  { display: none; }
+    .light-mode .moon-icon { display: block; }
+
+    /* ── Back button ── */
+    .back-btn {
+      position: fixed;
+      bottom: 24px; left: 24px;
+      width: 50px; height: 50px;
+      border-radius: 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1600;
+      text-decoration: none;
+      color: var(--text);
+    }
+    .back-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+      border-color: var(--brand);
+      background: rgba(36,191,240,0.1);
+    }
+
+    /* ── Page header ── */
+    .page-header { text-align:center; padding:48px 20px 10px; }
+    .eyebrow { display:inline-flex; align-items:center; gap:8px; background:rgba(36,191,240,0.12); border:1px solid rgba(36,191,240,0.3); color:var(--brand); font-size:12px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; padding:6px 16px; border-radius:50px; margin-bottom:14px; }
+    .page-header h1 { margin:0 0 8px; font-family:'Playfair Display','Inter',serif; font-size:clamp(26px,4vw,46px); font-weight:800; background:linear-gradient(135deg,var(--text) 30%,var(--brand) 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .page-header .subtitle { color:var(--text-muted); font-size:15px; margin:0 0 16px; }
+
+    /* ── Flash messages ── */
+    .flash-messages { position:fixed; top:20px; right:20px; z-index:3000; max-width:400px; }
+    .flash-message  { padding:14px 18px; margin-bottom:10px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,0.25); animation:slideIn 0.3s ease; display:flex; align-items:center; gap:10px; font-weight:500; font-size:14px; }
+    .flash-message.success { background:rgba(34,197,94,0.95);  color:#fff; }
+    .flash-message.error   { background:rgba(239,68,68,0.95);  color:#fff; }
+    .flash-message.info    { background:rgba(36,191,240,0.95); color:#fff; }
+    @keyframes slideIn { from{transform:translateX(420px);opacity:0} to{transform:translateX(0);opacity:1} }
+  </style>
+</head>
+<body>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages">
+        {% for category, message in messages %}
+          <div class="flash-message {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <button class="theme-toggle-corner" id="theme-toggle" aria-label="Toggle theme">
+    <svg class="theme-icon sun-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#fbbf24;">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/>
+    </svg>
+    <svg class="theme-icon moon-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#60a5fa;">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  </button>
+
+  <a href="{{ url_for('account') }}" class="back-btn" aria-label="Back to account">
+    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path d="M19 12H5M12 19l-7-7 7-7"/>
+    </svg>
+  </a>
+
+  <button class="fund-reopener-btn" onclick="openFundModal()" aria-label="Investment Fund">
+    🪙 Investment Fund
+  </button>
+
+  <div class="page-header">
+    <div class="eyebrow">📈 Investment Floor</div>
+    <h1>Kching Investments</h1>
+    <p class="subtitle">Put your money into companies and watch it grow — or shrink!</p>
+
+    <div class="meta-pills">
+      <div class="meta-pill">
+        <span class="label">Your Balance</span>
+        <span class="val green">&nbsp;${{ "%.2f"|format(balance) }}</span>
+      </div>
+      {% if fund_balance > 0 %}
+      <div class="meta-pill" style="border-color:rgba(36,191,240,0.4);">
+        <span class="label">Investment Fund</span>
+        <span class="val brand">&nbsp;${{ "%.2f"|format(fund_balance) }}</span>
+      </div>
+      {% endif %}
+      <div class="meta-pill">
+        <span class="label">Portfolio Value</span>
+        <span class="val brand">&nbsp;${{ "%.2f"|format(portfolio_value) }}</span>
+      </div>
+      {% if current_week %}
+      <div class="meta-pill">
+        <span class="label">Current Period</span>
+        <span class="val">&nbsp;{{ current_week }}</span>
+      </div>
+      {% endif %}
+      {% if inflation %}
+      <div class="meta-pill">
+        <span class="label">Inflation Rate</span>
+        <span class="val red">&nbsp;{{ inflation }}</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="main-container">
+
+    <!-- Companies -->
+    <div>
+      <div class="section-title">
+        🏢 Companies
+        <span class="badge">{{ companies|length }} listed</span>
+      </div>
+
+      {% if companies %}
+      <div class="companies-grid">
+        {% for company in companies %}
+          {% set h = holdings_map.get(company.name, {}) %}
+          {% set has_investment = h and h.get('InvestedAmount', 0) > 0 %}
+          {% set entry_nw = h.get('NetWorthAtInvestment', 0) if h else 0 %}
+          {% set invested  = h.get('InvestedAmount', 0) if h else 0 %}
+          {% set cur_val   = (invested * (company.netWorth / entry_nw)) if (has_investment and entry_nw > 0) else 0 %}
+          {% set pl        = cur_val - invested %}
+          {% set chg       = company.changePct %}
+          {% if chg > 0 %}{% set cpill = 'up' %}{% set arrow = '▲' %}
+          {% elif chg < 0 %}{% set cpill = 'down' %}{% set arrow = '▼' %}
+          {% else %}{% set cpill = 'flat' %}{% set arrow = '—' %}{% endif %}
+
+          <div class="company-card">
+            <div class="card-header">
+              <div class="company-name">{{ company.name }}</div>
+              <div class="nw-block">
+                <div class="nw-value">${{ "{:,.0f}".format(company.netWorth) }}</div>
+                <span class="change-pill {{ cpill }}">{{ arrow }} {{ "%.2f"|format(chg|abs) }}%</span>
+              </div>
+            </div>
+
+            {% if company.history|length > 1 %}
+            <div class="sparkline-wrap">
+              <div class="sparkline-label">Net Worth History</div>
+              <canvas class="sparkline" id="spark-{{ loop.index }}"
+                      data-vals="{{ company.history | map(attribute='netWorth') | list | join(',') }}"
+                      data-trend="{{ cpill }}"></canvas>
+            </div>
+            {% endif %}
+
+            {% if has_investment %}
+            <div class="invested-strip">
+              <span><span class="is-label">Invested </span><span class="is-val">${{ "%.2f"|format(invested) }}</span></span>
+              <span><span class="is-label">Now worth </span><span class="is-val">${{ "%.2f"|format(cur_val) }}</span></span>
+              <span class="is-pl {{ 'pos' if pl >= 0 else 'neg' }}">{{ '+' if pl >= 0 else '' }}${{ "%.2f"|format(pl) }}</span>
+            </div>
+            {% endif %}
+
+            <div class="card-actions">
+              <button class="btn-invest" onclick="openInvest('{{ company.name }}', {{ company.netWorth }})">💵 Invest</button>
+              <button class="btn-withdraw"
+                {% if not has_investment %}disabled title="No investment here"
+                {% else %}onclick="openWithdraw('{{ company.name }}', {{ cur_val }})"{% endif %}>
+                💰 Withdraw
+              </button>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div style="text-align:center;color:var(--text-muted);padding:40px;">
+        No companies found. Check that the <strong>Investments</strong> sheet is set up correctly.
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Portfolio -->
+    <div>
+      <div class="section-title">
+        📂 Your Portfolio
+        <span class="badge">Total: ${{ "%.2f"|format(portfolio_value) }}</span>
+      </div>
+      <div class="portfolio-card">
+        {% set has_any = namespace(v=false) %}
+        {% for company in companies %}
+          {% if holdings_map.get(company.name, {}).get('InvestedAmount', 0) > 0 %}{% set has_any.v = true %}{% endif %}
+        {% endfor %}
+
+        {% if has_any.v %}
+        <div class="portfolio-table-wrap">
+          <table class="portfolio-table">
+            <thead>
+              <tr>
+                <th>Company</th><th>Invested</th><th>Entry Net Worth</th><th>Current Net Worth</th><th>Current Value</th><th>P&amp;L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for company in companies %}
+                {% set h = holdings_map.get(company.name, {}) %}
+                {% set invested = h.get('InvestedAmount', 0) if h else 0 %}
+                {% set entry_nw = h.get('NetWorthAtInvestment', 0) if h else 0 %}
+                {% if invested > 0 and entry_nw > 0 %}
+                  {% set cur_val = invested * (company.netWorth / entry_nw) %}
+                  {% set pl = cur_val - invested %}
+                  <tr>
+                    <td><strong>{{ company.name }}</strong></td>
+                    <td>${{ "%.2f"|format(invested) }}</td>
+                    <td>${{ "{:,.0f}".format(entry_nw) }}</td>
+                    <td>${{ "{:,.0f}".format(company.netWorth) }}</td>
+                    <td><strong>${{ "%.2f"|format(cur_val) }}</strong></td>
+                    <td><span class="{{ 'pl-pos' if pl >= 0 else 'pl-neg' }}">{{ '+' if pl >= 0 else '' }}${{ "%.2f"|format(pl) }}</span></td>
+                  </tr>
+                {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">📫 You haven't invested in any companies yet — pick one above!</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Invest Modal -->
+  <div class="modal-overlay" id="investModal">
+    <div class="modal-box">
+      <h2 id="invest-title">Invest</h2>
+      <p class="modal-company" id="invest-company-label"></p>
+      <div class="modal-info-row">
+        <span class="mi-label">Current Net Worth</span>
+        <span class="mi-val" id="invest-nw">—</span>
+      </div>
+      <div class="modal-info-row">
+        <span class="mi-label">Your Balance</span>
+        <span class="mi-val">${{ "%.2f"|format(balance) }}</span>
+      </div>
+      <form method="POST" action="{{ url_for('stocks_buy') }}" id="investForm">
+        <input type="hidden" name="company" id="invest-company-input">
+        <label for="invest-amount">Amount to Invest ($)</label>
+        <input type="number" id="invest-amount" name="amount" min="0.01" step="0.01" placeholder="e.g. 50.00" oninput="updateInvestPreview()">
+        <div class="modal-preview" id="invest-preview">Enter an amount to continue.</div>
+        <div class="modal-actions">
+          <button type="submit" class="modal-submit-invest">✅ Confirm</button>
+          <button type="button" class="modal-cancel" onclick="closeInvest()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Withdraw Modal -->
+  <div class="modal-overlay" id="withdrawModal">
+    <div class="modal-box">
+      <h2 id="withdraw-title">Withdraw</h2>
+      <p class="modal-company" id="withdraw-company-label"></p>
+      <div class="modal-info-row">
+        <span class="mi-label">Your Investment Value</span>
+        <span class="mi-val" id="withdraw-cur-val">—</span>
+      </div>
+      <form method="POST" action="{{ url_for('stocks_sell') }}" id="withdrawForm">
+        <input type="hidden" name="company" id="withdraw-company-input">
+        <label for="withdraw-amount">Amount to Withdraw ($)</label>
+        <input type="number" id="withdraw-amount" name="amount" min="0.01" step="0.01" placeholder="e.g. 25.00" oninput="updateWithdrawPreview()">
+        <div class="modal-preview" id="withdraw-preview">Enter an amount to continue.</div>
+        <div class="modal-actions">
+          <button type="submit" class="modal-submit-withdraw">💰 Confirm</button>
+          <button type="button" class="modal-cancel" onclick="closeWithdraw()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Investment Fund Popup -->
+  <div class="fund-overlay" id="fundModal">
+    <div class="fund-box">
+      <div class="fund-badge">🪙 Action Token</div>
+      <h2>Investment Fund</h2>
+      <p>Request up to <strong>$500</strong> per action token. Once your banker approves, the funds are added to your Investment Fund and you can use them to invest — requests stack!</p>
+      <div class="fund-row">
+        <span class="fr-l">Your Balance</span>
+        <span class="fr-v">${{ "%.2f"|format(balance) }}</span>
+      </div>
+      <div class="fund-row">
+        <span class="fr-l">Investment Fund (available)</span>
+        <span class="fr-v" style="color:var(--brand)" id="fund-balance-display">${{ "%.2f"|format(fund_balance) }}</span>
+      </div>
+      <form method="POST" action="/stocks/request_fund" id="fundForm">
+        <input type="hidden" name="amount" value="500">
+        <div class="fund-note">Requesting <strong>$500.00</strong> — once approved, it stacks onto your Investment Fund!</div>
+        <div class="fund-actions">
+          <button type="submit" class="fund-btn-submit">🪙 Send Request to Banker</button>
+          <button type="button" class="fund-btn-close" onclick="closeFundModal()">Close for now</button>
+          <button type="button" class="fund-btn-nsa" onclick="doNotShowFund()">Don’t auto-show this again</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // Flash auto-dismiss
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('.flash-message').forEach((m, i) => {
+        setTimeout(() => {
+          m.style.animation = 'fadeOut 0.3s ease forwards';
+          setTimeout(() => m.remove(), 300);
+        }, 3500 + i * 500);
+      });
+    });
+
+    // Theme
+    const root = document.getElementById('html-root');
+    function applyTheme(t) {
+      root.classList.toggle('light-mode', t === 'light');
+      root.classList.toggle('dark-mode',  t !== 'light');
+    }
+    document.addEventListener('DOMContentLoaded', () => applyTheme("{{ session.get('theme', 'dark') }}"));
+    document.getElementById('theme-toggle').addEventListener('click', async () => {
+      const r = await fetch('/toggle-theme', { method: 'POST' });
+      if (r.ok) { const d = await r.json(); applyTheme(d.theme); }
+    });
+
+    // Sparklines
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('canvas.sparkline').forEach(canvas => {
+        const vals = canvas.dataset.vals.split(',').map(Number).filter(v => !isNaN(v) && v > 0);
+        if (vals.length < 2) return;
+        const trend = canvas.dataset.trend;
+        const dpr = window.devicePixelRatio || 1;
+        const W = canvas.offsetWidth || 260, H = 48;
+        canvas.width = W * dpr; canvas.height = H * dpr;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        const mn = Math.min(...vals), mx = Math.max(...vals), span = mx - mn || 1, pad = 4;
+        const color = trend === 'up' ? '#22c55e' : trend === 'down' ? '#ef4444' : '#9db6bd';
+        const pts = vals.map((v, i) => ({
+          x: (i / (vals.length - 1)) * (W - 2*pad) + pad,
+          y: H - pad - ((v - mn) / span) * (H - 2*pad)
+        }));
+        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+        pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.lineTo(pts[pts.length-1].x, H-pad); ctx.lineTo(pts[0].x, H-pad); ctx.closePath();
+        ctx.fillStyle = trend === 'up' ? 'rgba(34,197,94,0.15)' : trend === 'down' ? 'rgba(239,68,68,0.15)' : 'rgba(157,182,189,0.1)';
+        ctx.fill();
+        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+        pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+        ctx.beginPath(); ctx.arc(pts[pts.length-1].x, pts[pts.length-1].y, 3, 0, Math.PI*2);
+        ctx.fillStyle = color; ctx.fill();
+      });
+    });
+
+    // Invest modal
+    let _investNW = 0;
+    const _maxBal = {{ "%.2f"|format(balance) }};
+    function openInvest(company, nw) {
+      _investNW = nw;
+      document.getElementById('invest-title').textContent = 'Invest in ' + company;
+      document.getElementById('invest-company-label').textContent = company;
+      document.getElementById('invest-nw').textContent = '$' + nw.toLocaleString();
+      document.getElementById('invest-company-input').value = company;
+      document.getElementById('invest-amount').value = '';
+      document.getElementById('invest-amount').max = _maxBal;
+      document.getElementById('invest-preview').innerHTML = 'Enter an amount to continue.';
+      document.getElementById('investModal').classList.add('open');
+      setTimeout(() => document.getElementById('invest-amount').focus(), 80);
+    }
+    function closeInvest() { document.getElementById('investModal').classList.remove('open'); }
+    function updateInvestPreview() {
+      const amt = parseFloat(document.getElementById('invest-amount').value) || 0;
+      const el = document.getElementById('invest-preview');
+      if (amt <= 0) { el.innerHTML = 'Enter an amount to continue.'; return; }
+      if (amt > _maxBal) { el.innerHTML = '<span style="color:var(--red)">Exceeds your balance!</span>'; return; }
+      el.innerHTML = 'Investing <strong>$' + amt.toFixed(2) + '</strong> — tracks company net worth.';
+    }
+    document.getElementById('investModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInvest(); });
+
+    // Withdraw modal
+    let _withdrawMax = 0;
+    function openWithdraw(company, currentValue) {
+      _withdrawMax = currentValue;
+      document.getElementById('withdraw-title').textContent = 'Withdraw from ' + company;
+      document.getElementById('withdraw-company-label').textContent = company;
+      document.getElementById('withdraw-cur-val').textContent = '$' + currentValue.toFixed(2);
+      document.getElementById('withdraw-company-input').value = company;
+      document.getElementById('withdraw-amount').value = '';
+      document.getElementById('withdraw-amount').max = currentValue;
+      document.getElementById('withdraw-preview').innerHTML = 'Enter an amount to continue.';
+      document.getElementById('withdrawModal').classList.add('open');
+      setTimeout(() => document.getElementById('withdraw-amount').focus(), 80);
+    }
+    function closeWithdraw() { document.getElementById('withdrawModal').classList.remove('open'); }
+    function updateWithdrawPreview() {
+      const amt = parseFloat(document.getElementById('withdraw-amount').value) || 0;
+      const el = document.getElementById('withdraw-preview');
+      if (amt <= 0) { el.innerHTML = 'Enter an amount to continue.'; return; }
+      if (amt > _withdrawMax + 0.005) { el.innerHTML = '<span style="color:var(--red)">Exceeds your current value!</span>'; return; }
+      el.innerHTML = 'You will receive <strong>$' + amt.toFixed(2) + '</strong> back.';
+    }
+    document.getElementById('withdrawModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeWithdraw(); });
+
+    // ── Investment Fund popup ──
+    const FUND_HIDE_KEY = 'kching_fund_hide_{{ session.get("user", "") }}';
+    function openFundModal()  { document.getElementById('fundModal').classList.add('open'); }
+    function closeFundModal() { document.getElementById('fundModal').classList.remove('open'); }
+    function doNotShowFund()  { localStorage.setItem(FUND_HIDE_KEY, '1'); closeFundModal(); }
+    document.addEventListener('DOMContentLoaded', () => {
+      if (!localStorage.getItem(FUND_HIDE_KEY)) {
+        setTimeout(openFundModal, 700);
+      }
+    });
+    document.getElementById('fundModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeFundModal(); });
+  </script>
+</body>
+</html>
