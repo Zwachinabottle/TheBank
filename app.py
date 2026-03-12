@@ -20,15 +20,15 @@ class SheetCache:
     minutes — reducing total API calls dramatically.
 
     TTL constants (seconds):
-        LONG_TTL   = 600   structural / config (headers, teacher PIN)
-        MEDIUM_TTL = 180   shared raw sheet dumps (transactions, loans)
-        SHORT_TTL  = 90    per-user derived views
-        DEFAULT_TTL = 60   general default
+        LONG_TTL   = 1800  structural / config (headers, teacher PIN)
+        MEDIUM_TTL = 600   shared raw sheet dumps (transactions, loans)
+        SHORT_TTL  = 300   per-user derived views
+        DEFAULT_TTL = 180  general default
     """
-    LONG_TTL   = 600
-    MEDIUM_TTL = 180
-    SHORT_TTL  = 90
-    DEFAULT_TTL = 60
+    LONG_TTL   = 1800
+    MEDIUM_TTL = 600
+    SHORT_TTL  = 300
+    DEFAULT_TTL = 180
 
     def __init__(self, ttl=60):
         self.cache = {}
@@ -73,6 +73,67 @@ class SheetCache:
             for key in keys_to_delete:
                 del self.cache[key]
 
+
+def _col_letter(col_num: int) -> str:
+    """Convert a 1-based column number to spreadsheet column letter(s) (e.g. 1→A, 27→AA)."""
+    result = ""
+    while col_num > 0:
+        col_num, rem = divmod(col_num - 1, 26)
+        result = chr(65 + rem) + result
+    return result
+
+
+# ---------- WRITE BUFFER ----------
+class WriteBuffer:
+    """Deferred-write buffer that coalesces append_row() calls into a single
+    append_rows() flush, dramatically reducing API write quota consumption.
+
+    Usage:
+        buf.queue(row_list)   # no API call — in-memory append only
+        buf.flush()           # one append_rows() API call for all queued rows
+
+    The background worker thread flushes all buffers every FLUSH_INTERVAL seconds.
+    Individual callers may call flush() directly when immediate persistence is needed.
+    """
+    FLUSH_INTERVAL = 30  # seconds between background flushes
+
+    def __init__(self, get_sheet_fn, cache_keys=None, name="buf"):
+        """get_sheet_fn: callable → gspread Worksheet (resolved lazily)."""
+        self._get_sheet = get_sheet_fn
+        self._cache_keys = cache_keys or []
+        self._name = name
+        self._rows: list = []
+        self._lock = Lock()
+
+    def queue(self, row: list):
+        """Append *row* to the in-memory buffer (zero API calls)."""
+        with self._lock:
+            self._rows.append(row)
+
+    def flush(self):
+        """Write all buffered rows to the sheet in one append_rows() call."""
+        with self._lock:
+            if not self._rows:
+                return
+            rows_to_write = self._rows[:]
+            self._rows.clear()
+        try:
+            def do_append():
+                self._get_sheet().append_rows(rows_to_write,
+                                              value_input_option="USER_ENTERED")
+            retry_with_backoff(do_append)
+            for key in self._cache_keys:
+                if "*" in key:
+                    cache.invalidate_pattern(key.replace("*", ""))
+                else:
+                    cache.invalidate(key)
+        except Exception as exc:
+            print(f"[WriteBuffer:{self._name}] flush error: {exc}")
+            # Re-queue rows so they are not silently lost on transient errors
+            with self._lock:
+                self._rows = rows_to_write + self._rows
+
+
 # Global cache instance — default 60 s per entry; high-churn keys use
 # per-call ttl= overrides (see SheetCache constants above).
 cache = SheetCache()  # ttl=60 default
@@ -116,85 +177,100 @@ scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 credentials = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(credentials)
 
-sheet = client.open("Bank-Info")
-users_sheet = sheet.worksheet("Users")
-transactions_sheet = sheet.worksheet("Transactions")
-fed_sheet = sheet.worksheet("Reserve")
-loans_sheet = sheet.worksheet("Loans")
+# Open both sheets to distribute API quota load
+core_sheet = client.open("Bank-Info-Core")
+features_sheet = client.open("Bank-Info-Features")
 
+# Core banking worksheets (highest API usage) → Bank-Info-Core
+users_sheet = core_sheet.worksheet("Users")
+transactions_sheet = core_sheet.worksheet("Transactions")
+fed_sheet = core_sheet.worksheet("Reserve")
+loans_sheet = core_sheet.worksheet("Loans")
+
+# Feature worksheets (lower API usage) → Bank-Info-Features
 # Pre-load the Logs worksheet once at startup so log_action never pays the
 # cost of a runtime sheet.worksheet() API lookup on every teacher action.
 try:
-    logs_sheet = sheet.worksheet("Logs")
+    logs_sheet = features_sheet.worksheet("Logs")
 except Exception:
-    logs_sheet = sheet.add_worksheet("Logs", rows=1000, cols=5)
+    logs_sheet = features_sheet.add_worksheet("Logs", rows=1000, cols=5)
 
 # Pre-load the CashBurns worksheet once at startup for the same reason.
 try:
-    cashburns_sheet = sheet.worksheet("CashBurns")
+    cashburns_sheet = features_sheet.worksheet("CashBurns")
 except Exception:
-    cashburns_sheet = sheet.add_worksheet("CashBurns", rows=1000, cols=5)
+    cashburns_sheet = features_sheet.add_worksheet("CashBurns", rows=1000, cols=5)
 
 # Pre-load the Ads worksheet for the ad management system.
 try:
-    ads_sheet = sheet.worksheet("Ads")
+    ads_sheet = features_sheet.worksheet("Ads")
 except Exception:
-    ads_sheet = sheet.add_worksheet("Ads", rows=1000, cols=9)
+    ads_sheet = features_sheet.add_worksheet("Ads", rows=1000, cols=9)
     ads_sheet.update([["ID", "Title", "ImageURL", "LinkURL", "Pages", "Schedule", "Priority", "Interval", "Active"]], 'A1:I1')
 
 # Pre-load the Lottery tickets sheet.
 try:
-    lottery_sheet = sheet.worksheet("Lottery")
+    lottery_sheet = features_sheet.worksheet("Lottery")
 except Exception:
-    lottery_sheet = sheet.add_worksheet("Lottery", rows=5000, cols=6)
+    lottery_sheet = features_sheet.add_worksheet("Lottery", rows=5000, cols=6)
     lottery_sheet.update([["TicketID", "Username", "Number1", "VexBall", "PurchaseDate", "Drawing"]], 'A1:F1')
 
 # Pre-load the LotteryLogs sheet (purchase records & win/loss events).
 try:
-    lottery_logs_sheet = sheet.worksheet("LotteryLogs")
+    lottery_logs_sheet = features_sheet.worksheet("LotteryLogs")
 except Exception:
-    lottery_logs_sheet = sheet.add_worksheet("LotteryLogs", rows=5000, cols=5)
+    lottery_logs_sheet = features_sheet.add_worksheet("LotteryLogs", rows=5000, cols=5)
     lottery_logs_sheet.update([["Username", "Type", "Amount", "Date", "Description"]], 'A1:E1')
 
 # Load the Investments sheet (teacher-maintained company net-worth table).
 try:
-    investments_sheet = sheet.worksheet("Investments")
+    investments_sheet = features_sheet.worksheet("Investments")
 except Exception:
     investments_sheet = None  # page will show a friendly error if missing
 
 # Pre-load the StockHoldings sheet (per-user investment tracking).
 # Schema: Username | Company | InvestedAmount | NetWorthAtInvestment
 try:
-    stock_holdings_sheet = sheet.worksheet("StockHoldings")
+    stock_holdings_sheet = features_sheet.worksheet("StockHoldings")
     # Migrate old schema (Ticker/Shares/AvgCostBasis) → new schema if needed
     _sh_header = stock_holdings_sheet.row_values(1)
     if _sh_header and _sh_header[1:3] == ["Ticker", "Shares"]:
         stock_holdings_sheet.clear()
         stock_holdings_sheet.update([["Username", "Company", "InvestedAmount", "NetWorthAtInvestment"]], 'A1:D1')
 except Exception:
-    stock_holdings_sheet = sheet.add_worksheet("StockHoldings", rows=2000, cols=4)
+    stock_holdings_sheet = features_sheet.add_worksheet("StockHoldings", rows=2000, cols=4)
     stock_holdings_sheet.update([["Username", "Company", "InvestedAmount", "NetWorthAtInvestment"]], 'A1:D1')
 
 # Pre-load FundRequests sheet (pending investment fund requests from students).
 try:
-    fund_requests_sheet = sheet.worksheet("FundRequests")
+    fund_requests_sheet = features_sheet.worksheet("FundRequests")
 except Exception:
-    fund_requests_sheet = sheet.add_worksheet("FundRequests", rows=2000, cols=4)
+    fund_requests_sheet = features_sheet.add_worksheet("FundRequests", rows=2000, cols=4)
     fund_requests_sheet.update([["Username", "Amount", "Status", "RequestedAt"]], 'A1:D1')
 
 # Pre-load InvestFunds sheet (approved investment fund balances per user).
 try:
-    invest_funds_sheet = sheet.worksheet("InvestFunds")
+    invest_funds_sheet = features_sheet.worksheet("InvestFunds")
 except Exception:
-    invest_funds_sheet = sheet.add_worksheet("InvestFunds", rows=1000, cols=2)
+    invest_funds_sheet = features_sheet.add_worksheet("InvestFunds", rows=1000, cols=2)
     invest_funds_sheet.update([["Username", "Balance"]], 'A1:B1')
 
 # Pre-load FeeLogs sheet (one row per 1% transaction fee collected by the bank).
 try:
-    fee_logs_sheet = sheet.worksheet("FeeLogs")
+    fee_logs_sheet = features_sheet.worksheet("FeeLogs")
 except Exception:
-    fee_logs_sheet = sheet.add_worksheet("FeeLogs", rows=5000, cols=6)
+    fee_logs_sheet = features_sheet.add_worksheet("FeeLogs", rows=5000, cols=6)
     fee_logs_sheet.update([["Date", "Sender", "Receiver", "TransactionAmount", "FeeAmount", "Description"]], 'A1:F1')
+
+# ---------- WRITE BUFFERS (deferred append_row → batched append_rows) ----------
+# Logs and FeeLogs are high-frequency audit writes with no user-facing urgency.
+# Queuing rows and flushing in bulk saves the most write-quota of any single change.
+_log_buffer     = WriteBuffer(lambda: logs_sheet,
+                              cache_keys=["all_logs_raw"], name="logs")
+_fee_log_buffer = WriteBuffer(lambda: fee_logs_sheet,
+                              cache_keys=["all_fee_logs_raw"], name="fee_logs")
+# Registry — background worker flushes all buffers on every FLUSH_INTERVAL tick.
+_ALL_WRITE_BUFFERS = [_log_buffer, _fee_log_buffer]
 
 # Ensure Transactions sheet has a proper header row
 trans_required_headers = ["Sender", "Receiver", "Amount", "Date", "Comment"]
@@ -279,7 +355,7 @@ def get_teacher_pin():
         return cached
     try:
         def fetch():
-            r = sheet.worksheet("Reserve")
+            r = core_sheet.worksheet("Reserve")
             config_cell = r.find("SystemConfig", in_column=1)
             if config_cell:
                 row = r.row_values(config_cell.row)
@@ -361,7 +437,7 @@ def get_all_users():
         return users_sheet.get_all_records(expected_headers=expected)
     
     users = retry_with_backoff(fetch)
-    cache.set(cache_key, users, ttl=120)  # 2-min freshness for user list
+    cache.set(cache_key, users, ttl=300)  # 5-min freshness for user list
     return users
 
 def get_all_users_with_balances():
@@ -396,16 +472,15 @@ def add_transaction(sender, receiver, amount, comment=""):
 
 
 def log_fee(sender, receiver, transaction_amount, fee_amount, description=""):
-    """Append a row to the FeeLogs sheet whenever the bank collects a 1% fee."""
+    """Queue a fee-log entry to the deferred write buffer.
+
+    Rows are flushed to the FeeLogs sheet in bulk by the background worker thread.
+    """
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not description:
         description = f"1% transaction fee on transfer from {sender} to {receiver}"
-
-    def append():
-        fee_logs_sheet.append_row([now, sender, receiver, transaction_amount, fee_amount, description])
-
-    retry_with_backoff(append)
-    cache.invalidate("all_fee_logs_raw")
+    _fee_log_buffer.queue([now, sender, receiver, transaction_amount, fee_amount, description])
+    # Cache invalidation happens automatically when the buffer flushes.
 
 
 def add_lottery_log(username, log_type, amount, description=""):
@@ -834,29 +909,29 @@ def ensure_fed_sheet():
 def ensure_logs_sheet():
     """Ensure Logs sheet has proper headers"""
     try:
-        logs_sheet = sheet.worksheet("Logs")
+        logs_sheet_check = features_sheet.worksheet("Logs")
     except:
         # Create Logs sheet if it doesn't exist
-        logs_sheet = sheet.add_worksheet("Logs", rows=1000, cols=5)
+        logs_sheet_check = features_sheet.add_worksheet("Logs", rows=1000, cols=5)
     
     required_headers = ["User", "Action", "Amount", "Acceptance", "Timestamp"]
-    existing_headers = logs_sheet.row_values(1)
+    existing_headers = logs_sheet_check.row_values(1)
     
     # If header row is empty, write full header
     if not existing_headers or existing_headers == ['', '', '', '', '']:
-        logs_sheet.update([required_headers], 'A1:E1')
+        logs_sheet_check.update([required_headers], 'A1:E1')
         return
     
     # Fix headers if they exist but are wrong
     if existing_headers[:5] != required_headers:
-        logs_sheet.update([required_headers], 'A1:E1')
+        logs_sheet_check.update([required_headers], 'A1:E1')
 
 def ensure_deletions_sheet():
     """Ensure Deletions sheet exists with proper headers"""
     try:
-        deletions_sheet = sheet.worksheet("Deletions")
+        deletions_sheet = features_sheet.worksheet("Deletions")
     except:
-        deletions_sheet = sheet.add_worksheet("Deletions", rows=1000, cols=5)
+        deletions_sheet = features_sheet.add_worksheet("Deletions", rows=1000, cols=5)
 
     required_headers = ["Username", "Requester", "Reason", "Date", "Status"]
     existing_headers = deletions_sheet.row_values(1)
@@ -1061,11 +1136,9 @@ def recalculate_federal_reserve():
     total_loan_repaid = 0
     
     try:
-        def fetch_loans():
-            return loans_sheet.get_all_records(expected_headers=loans_sheet.row_values(1))
-        
-        loans = retry_with_backoff(fetch_loans)
-        
+        # Re-use the shared cached loan dump instead of a direct API read
+        loans = get_all_loans_raw()
+
         for loan in loans:
             if loan.get("Status") == "Approved":
                 original_amount = float(loan.get("Amount", 0))
@@ -1185,13 +1258,9 @@ def process_loan_payments():
     """Process all loan payments that are due (automated daily deductions)"""
     from datetime import datetime, timedelta
     
-    def get_loan_data():
-        header = loans_sheet.row_values(1)
-        loans = loans_sheet.get_all_records(expected_headers=header)
-        return loans, header
-    
-    loans, header = retry_with_backoff(get_loan_data)
-    col_index = {name: idx + 1 for idx, name in enumerate(header)}
+    # Use the shared cached loan dump (avoids 2 extra API calls: row_values + get_all_records)
+    loans = get_all_loans_raw()
+    col_index = {name: idx + 1 for idx, name in enumerate(_LOANS_HEADERS)}
     
     today = datetime.now().date()
     payments_processed = 0
@@ -1239,20 +1308,23 @@ def process_loan_payments():
             total_paid += weekly_payment
             
             def update_loan():
-                # Update weeks remaining
-                loans_sheet.update_cell(idx, col_index["WeeksRemaining"], weeks_remaining)
-                
-                # Update total paid
-                loans_sheet.update_cell(idx, col_index["TotalPaid"], total_paid)
-                
+                # Batch all cell writes for this loan into one API call
+                updates = [
+                    {"range": f"{_col_letter(col_index['WeeksRemaining'])}{idx}",
+                     "values": [[weeks_remaining]]},
+                    {"range": f"{_col_letter(col_index['TotalPaid'])}{idx}",
+                     "values": [[total_paid]]},
+                ]
                 if weeks_remaining <= 0:
-                    # Loan fully paid
-                    loans_sheet.update_cell(idx, col_index["Status"], "Paid")
-                    loans_sheet.update_cell(idx, col_index["NextPaymentDate"], "")
+                    updates.append({"range": f"{_col_letter(col_index['Status'])}{idx}",
+                                    "values": [["Paid"]]})
+                    updates.append({"range": f"{_col_letter(col_index['NextPaymentDate'])}{idx}",
+                                    "values": [[""]]})
                 else:
-                    # Set next payment date (1 day from now)
                     next_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-                    loans_sheet.update_cell(idx, col_index["NextPaymentDate"], next_date)
+                    updates.append({"range": f"{_col_letter(col_index['NextPaymentDate'])}{idx}",
+                                    "values": [[next_date]]})
+                loans_sheet.batch_update(updates)
             
             retry_with_backoff(update_loan)
             payments_processed += 1
@@ -1407,13 +1479,12 @@ def approve_loan(loan_row_index):
     from datetime import timedelta
     
     def get_loan():
-        loan = loans_sheet.row_values(loan_row_index)
-        header = loans_sheet.row_values(1)
-        return loan, header
-    
-    loan, header = retry_with_backoff(get_loan)
-    col_index = {name: idx + 1 for idx, name in enumerate(header)}
-    
+        # Only fetch the single data row; header is already in _LOANS_HEADERS (startup)
+        return loans_sheet.row_values(loan_row_index)
+
+    loan = retry_with_backoff(get_loan)
+    col_index = {name: idx + 1 for idx, name in enumerate(_LOANS_HEADERS)}
+
     requester = loan[col_index["Requester"] - 1]
     amount = float(loan[col_index["Amount"] - 1])
     weeks = int(loan[col_index["Weeks"] - 1])
@@ -1451,15 +1522,18 @@ def approve_loan(loan_row_index):
     # Add transaction
     add_transaction("Bank", requester, amount, "Loan disbursement")
     
-    # Update loan status
+    # Update loan status — batch all 3 cell writes into one API call
     def update_loan():
-        loans_sheet.update_cell(loan_row_index, col_index["Status"], "Active")
-        loans_sheet.update_cell(loan_row_index, col_index["WeeksRemaining"], weeks)
-        
-        # Set next payment date (7 days from now)
         next_payment = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-        loans_sheet.update_cell(loan_row_index, col_index["NextPaymentDate"], next_payment)
-    
+        loans_sheet.batch_update([
+            {"range": f"{_col_letter(col_index['Status'])}{loan_row_index}",
+             "values": [["Active"]]},
+            {"range": f"{_col_letter(col_index['WeeksRemaining'])}{loan_row_index}",
+             "values": [[weeks]]},
+            {"range": f"{_col_letter(col_index['NextPaymentDate'])}{loan_row_index}",
+             "values": [[next_payment]]},
+        ])
+
     retry_with_backoff(update_loan)
     
     # Log action
@@ -1473,13 +1547,12 @@ def approve_loan(loan_row_index):
 def deny_loan(loan_row_index):
     """Deny a loan application"""
     def get_loan():
-        loan = loans_sheet.row_values(loan_row_index)
-        header = loans_sheet.row_values(1)
-        return loan, header
-    
-    loan, header = retry_with_backoff(get_loan)
-    col_index = {name: idx + 1 for idx, name in enumerate(header)}
-    
+        # Only fetch the single data row; header is already in _LOANS_HEADERS (startup)
+        return loans_sheet.row_values(loan_row_index)
+
+    loan = retry_with_backoff(get_loan)
+    col_index = {name: idx + 1 for idx, name in enumerate(_LOANS_HEADERS)}
+
     requester = loan[col_index["Requester"] - 1]
     
     def update():
@@ -1500,7 +1573,7 @@ def get_pending_deletions():
     
     try:
         def fetch():
-            deletions_sheet = sheet.worksheet("Deletions")
+            deletions_sheet = features_sheet.worksheet("Deletions")
             return deletions_sheet.get_all_records()
         
         rows = retry_with_backoff(fetch)
@@ -1555,7 +1628,7 @@ def get_pending_teacher_requests():
     
     try:
         def fetch():
-            teacher_requests_sheet = sheet.worksheet("TeacherRequests")
+            teacher_requests_sheet = features_sheet.worksheet("TeacherRequests")
             # Use expected_headers to ensure correct column mapping
             expected = ["Username", "Password", "Email", "Status", "ApprovedBy", "Requested Date"]
             return teacher_requests_sheet.get_all_records(expected_headers=expected)
@@ -1585,7 +1658,7 @@ def get_pending_role_change_requests():
     
     try:
         def fetch():
-            role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+            role_requests_sheet = features_sheet.worksheet("RoleChangeRequests")
             # get_all_records uses the sheet's own header row by default — no extra row_values(1) needed
             return role_requests_sheet.get_all_records()
         
@@ -1633,7 +1706,7 @@ def get_pending_loans():
 def approve_deletion(deletion_row_index):
     """Approve and execute account deletion"""
     def get_deletion():
-        deletions_sheet = sheet.worksheet("Deletions")
+        deletions_sheet = features_sheet.worksheet("Deletions")
         header = deletions_sheet.row_values(1)
         deletion = deletions_sheet.row_values(deletion_row_index)
         return deletions_sheet, header, deletion
@@ -1664,7 +1737,7 @@ def approve_deletion(deletion_row_index):
 def deny_deletion(deletion_row_index):
     """Deny account deletion request"""
     def get_and_update():
-        deletions_sheet = sheet.worksheet("Deletions")
+        deletions_sheet = features_sheet.worksheet("Deletions")
         header = deletions_sheet.row_values(1)
         col_index = {name: idx + 1 for idx, name in enumerate(header)}
         deletions_sheet.update_cell(deletion_row_index, col_index["Status"], "Denied")
@@ -2003,7 +2076,8 @@ def get_user_investment_holdings(username):
             h["InvestedAmount"]       = float(h.get("InvestedAmount", 0) or 0)
             h["NetWorthAtInvestment"] = float(h.get("NetWorthAtInvestment", 0) or 0)
         except (ValueError, TypeError):
-            pass
+            h["InvestedAmount"]       = 0.0
+            h["NetWorthAtInvestment"] = 0.0
     cache.set(cache_key, holdings)
     return holdings
 
@@ -2511,7 +2585,7 @@ def change_username():
         
         # Update username in Transactions sheet (both Sender and Receiver columns)
         def update_transactions():
-            transactions_sheet = sheet.worksheet("Transactions")
+            transactions_sheet = core_sheet.worksheet("Transactions")
             header = transactions_sheet.row_values(1)
             all_rows = transactions_sheet.get_all_values()
             
@@ -2575,7 +2649,7 @@ def change_username():
         # Update username in Deletions sheet if it exists
         try:
             def update_deletions():
-                deletions_sheet = sheet.worksheet("Deletions")
+                deletions_sheet = features_sheet.worksheet("Deletions")
                 header = deletions_sheet.row_values(1)
                 all_rows = deletions_sheet.get_all_values()
                 
@@ -2592,7 +2666,7 @@ def change_username():
         # Update username in RoleChangeRequests sheet if it exists
         try:
             def update_role_requests():
-                role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+                role_requests_sheet = features_sheet.worksheet("RoleChangeRequests")
                 header = role_requests_sheet.row_values(1)
                 all_rows = role_requests_sheet.get_all_values()
                 
@@ -2863,10 +2937,10 @@ def request_teacher_account():
     # Add to teacher requests sheet for banker approval
     def add_request():
         try:
-            teacher_requests_sheet = sheet.worksheet("TeacherRequests")
+            teacher_requests_sheet = features_sheet.worksheet("TeacherRequests")
         except:
             # Create sheet if it doesn't exist
-            teacher_requests_sheet = sheet.add_worksheet("TeacherRequests", rows=100, cols=6)
+            teacher_requests_sheet = features_sheet.add_worksheet("TeacherRequests", rows=100, cols=6)
             teacher_requests_sheet.append_row(["Username", "Password", "Email", "Status", "ApprovedBy", "Requested Date"])
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2901,10 +2975,10 @@ def request_role_change():
     # Add to role change requests sheet
     def add_request():
         try:
-            role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+            role_requests_sheet = features_sheet.worksheet("RoleChangeRequests")
         except:
             # Create sheet if it doesn't exist
-            role_requests_sheet = sheet.add_worksheet("RoleChangeRequests", rows=100, cols=6)
+            role_requests_sheet = features_sheet.add_worksheet("RoleChangeRequests", rows=100, cols=6)
             role_requests_sheet.append_row(["Username", "Current Role", "Requested Role", "Reason", "Request Date", "Status"])
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2924,7 +2998,7 @@ def delete_account():
     
     # Write deletion request to Deletions sheet
     def write_deletion():
-        deletions_sheet = sheet.worksheet("Deletions")
+        deletions_sheet = features_sheet.worksheet("Deletions")
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         deletions_sheet.append_row([username, session["user"], reason, now, "Pending"])
 
@@ -2941,15 +3015,15 @@ def delete_account():
     return redirect(url_for("teacher_tools"))
 
 def log_action(user, action, amount, acceptance):
-    """Log actions to Logs sheet and invalidate cache.
+    """Queue a log entry to the deferred write buffer.
+
+    Rows are flushed to the Logs sheet in a single append_rows() call by the
+    background worker thread every ~30 s, or immediately via _log_buffer.flush().
     Uses the module-level logs_sheet handle to avoid a runtime worksheet() API lookup.
     """
-    def append():
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logs_sheet.append_row([user, action, amount or "", acceptance, now])
-    
-    retry_with_backoff(append)
-    cache.invalidate("logs")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _log_buffer.queue([user, action, amount or "", acceptance, now])
+    # Cache invalidation happens automatically when the buffer flushes.
     
 @app.route("/add_money", methods=["POST"])
 @role_required("Teacher", "Banker")
@@ -3227,7 +3301,7 @@ def set_project_end_date_route():
 @role_required("Banker")
 def approve_deletion_route(row_index):
     def get_deletion():
-        deletions_sheet = sheet.worksheet("Deletions")
+        deletions_sheet = features_sheet.worksheet("Deletions")
         deletion = deletions_sheet.row_values(row_index)
         header = deletions_sheet.row_values(1)
         return deletions_sheet, deletion, header
@@ -3262,7 +3336,7 @@ def approve_deletion_route(row_index):
 @role_required("Banker")
 def deny_deletion_route(row_index):
     def get_and_update():
-        deletions_sheet = sheet.worksheet("Deletions")
+        deletions_sheet = features_sheet.worksheet("Deletions")
         header = deletions_sheet.row_values(1)
         col_index = {name: idx + 1 for idx, name in enumerate(header)}
         deletions_sheet.update_cell(row_index, col_index["Status"], "Denied")
@@ -3344,7 +3418,7 @@ def deny_cashburn_route(row_index):
 def approve_teacher_request(row_index):
     try:
         def get_request_and_create():
-            teacher_requests_sheet = sheet.worksheet("TeacherRequests")
+            teacher_requests_sheet = features_sheet.worksheet("TeacherRequests")
             header = teacher_requests_sheet.row_values(1)
             row = teacher_requests_sheet.row_values(row_index)
             
@@ -3399,7 +3473,7 @@ def approve_teacher_request(row_index):
 def deny_teacher_request(row_index):
     try:
         def get_and_update():
-            teacher_requests_sheet = sheet.worksheet("TeacherRequests")
+            teacher_requests_sheet = features_sheet.worksheet("TeacherRequests")
             row = teacher_requests_sheet.row_values(row_index)
             username = row[0] if len(row) > 0 else "Unknown"
             
@@ -3430,7 +3504,7 @@ def deny_teacher_request(row_index):
 @role_required("Banker")
 def approve_role_change(row_index):
     def get_request_and_update():
-        role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+        role_requests_sheet = features_sheet.worksheet("RoleChangeRequests")
         row = role_requests_sheet.row_values(row_index)
         
         if len(row) >= 3:
@@ -3470,7 +3544,7 @@ def approve_role_change(row_index):
 @role_required("Banker")
 def deny_role_change(row_index):
     def get_and_update():
-        role_requests_sheet = sheet.worksheet("RoleChangeRequests")
+        role_requests_sheet = features_sheet.worksheet("RoleChangeRequests")
         row = role_requests_sheet.row_values(row_index)
         username = row[0] if len(row) > 0 else "Unknown"
         
@@ -3897,21 +3971,21 @@ def save_system_setting():
     
     try:
         # Get the Reserve sheet (for storing config)
-        fed_sheet = sheet.worksheet("Reserve")
+        fed_sheet_local = core_sheet.worksheet("Reserve")
         
         # Get current config or create structure
         try:
-            config_row = fed_sheet.find("SystemConfig", in_column=1)
+            config_row = fed_sheet_local.find("SystemConfig", in_column=1)
             if config_row:
                 row_num = config_row.row
             else:
                 # Create config row
-                fed_sheet.append_row(["SystemConfig", "", "", "", "", "", ""])
-                row_num = len(fed_sheet.get_all_values())
+                fed_sheet_local.append_row(["SystemConfig", "", "", "", "", "", ""])
+                row_num = len(fed_sheet_local.get_all_values())
         except:
             # If not found, append new row
-            fed_sheet.append_row(["SystemConfig", "", "", "", "", "", ""])
-            row_num = len(fed_sheet.get_all_values())
+            fed_sheet_local.append_row(["SystemConfig", "", "", "", "", "", ""])
+            row_num = len(fed_sheet_local.get_all_values())
         
         # Map settings to columns
         # Column mapping: A=Label, B=BankerPassword, C=TeacherPIN, D=CardPrefix, E=MaxInterest, F=MinInterest, G=ReserveReq
@@ -3926,7 +4000,7 @@ def save_system_setting():
         
         if setting_type == "project_end_date":
             # Project end date uses the existing mechanism
-            fed_sheet.update_cell(2, 1, value)  # Update A2 with the date
+            fed_sheet_local.update_cell(2, 1, value)  # Update A2 with the date
             cache.invalidate_pattern("federal")
             return jsonify({"success": True, "message": "Project end date updated"})
 
@@ -3947,7 +4021,7 @@ def save_system_setting():
         
         # Update the specific setting
         col_num = column_map[setting_type]
-        fed_sheet.update_cell(row_num, col_num, value)
+        fed_sheet_local.update_cell(row_num, col_num, value)
         
         # Invalidate cache
         cache.invalidate_pattern("federal")
@@ -5001,6 +5075,56 @@ def debug_investments():
         "current_week": parsed["currentWeek"],
         "inflation": parsed["inflation"],
     })
+
+
+# ---------- BACKGROUND REFRESH & FLUSH WORKER ----------
+def _background_worker():
+    """Proactively warm hot read-caches and flush deferred write-buffers.
+
+    Schedule:
+        Every 30 s  — flush all WriteBuffer instances (logs, fee_logs)
+        Every 120 s — force-refresh the most-read sheet caches so nearly
+                      every user request hits warm in-memory data instead of
+                      making a live Google Sheets API call.
+    """
+    FLUSH_INTERVAL   = 30   # seconds
+    REFRESH_INTERVAL = 120  # seconds
+    last_flush   = 0.0
+    last_refresh = 0.0
+
+    while True:
+        time.sleep(10)
+        now = time.time()
+
+        # ── Flush deferred write buffers ──────────────────────────────────
+        if now - last_flush >= FLUSH_INTERVAL:
+            for buf in _ALL_WRITE_BUFFERS:
+                try:
+                    buf.flush()
+                except Exception as exc:
+                    print(f"[bg] write-buffer flush error: {exc}")
+            last_flush = now
+
+        # ── Proactively warm the most-read caches ─────────────────────────
+        if now - last_refresh >= REFRESH_INTERVAL:
+            refresh_targets = [
+                ("all_users",            ["all_users"],            get_all_users),
+                ("all_transactions_raw", ["all_transactions_raw"], get_all_transactions_raw),
+                ("all_loans_raw",        ["all_loans_raw"],        get_all_loans_raw),
+                ("all_logs_raw",         ["all_logs_raw"],         get_all_logs_raw),
+                ("fed_stats",            ["fed_stats"],            get_federal_reserve_stats),
+            ]
+            for fn_name, invalidate_keys, fn in refresh_targets:
+                try:
+                    cache.invalidate(*invalidate_keys)
+                    fn()  # re-populates the cache immediately
+                except Exception as exc:
+                    print(f"[bg] cache refresh error ({fn_name}): {exc}")
+            last_refresh = now
+
+
+_bg_thread = Thread(target=_background_worker, daemon=True)
+_bg_thread.start()
 
 
 if __name__ == "__main__":
