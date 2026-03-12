@@ -805,7 +805,8 @@ def ensure_fed_sheet():
         "ExchangeRate",           # Multiplier applied to base weekly payments (default 1.0)
         "PersonalToCompanyRate",  # Exchange: 1 personal $ → N company $ (default 1.0)
         "WeekStartBankBalance",   # Bank balance snapshot taken at start of the week
-        "WeekStartTimestamp"      # When the week snapshot was last taken
+        "WeekStartTimestamp",     # When the week snapshot was last taken
+        "InvestmentWeek",         # Active week displayed on the Investment Floor
     ]
 
     existing_headers = fed_sheet.row_values(1)
@@ -1902,8 +1903,14 @@ def get_investments_data():
 
     def _find_col_by_label(label):
         label_l = label.strip().lower()
+        # Exact match first
         for i in range(1, len(weeks_row)):
             if str(weeks_row[i]).strip().lower() == label_l:
+                return i
+        # Fallback: collapse all whitespace and compare (handles double-space, etc.)
+        label_norm = " ".join(label_l.split())
+        for i in range(1, len(weeks_row)):
+            if " ".join(str(weeks_row[i]).strip().lower().split()) == label_norm:
                 return i
         return None
 
@@ -1912,28 +1919,18 @@ def get_investments_data():
         if col is not None:
             current_col = col
     else:
-        found_cw = False
-        for row in raw:
-            if row and str(row[0]).strip().lower().replace(" ", "") == "currentweek":
-                stored = str(row[1]).strip() if len(row) > 1 else ""
-                col = _find_col_by_label(stored)
-                if col is not None:
-                    current_col = col
-                    # Warm the in-memory override so future calls don't re-scan the sheet
-                    _investment_week_override = str(weeks_row[col]).strip()
-                elif stored:
-                    # Legacy fallback: stored value might be a numeric column index
-                    try:
-                        target_col = int(stored)
-                        max_col = max((i for i in range(1, len(weeks_row)) if str(weeks_row[i]).strip()), default=1)
-                        current_col = max(1, min(target_col, max_col))
-                        _investment_week_override = str(weeks_row[current_col]).strip()
-                    except (ValueError, IndexError):
-                        pass
-                found_cw = True
-                break
-        if not found_cw:
-            # No CurrentWeek row — use rightmost labelled week
+        # Read active week from the Reserve sheet (same key-value store as ExchangeRate etc.)
+        stored = ""
+        try:
+            stored = str(get_federal_reserve_stats().get("InvestmentWeek", "")).strip()
+        except Exception:
+            pass
+        col = _find_col_by_label(stored) if stored else None
+        if col is not None:
+            current_col = col
+            _investment_week_override = str(weeks_row[col]).strip()
+        else:
+            # Nothing persisted yet — default to rightmost labelled week
             for i in range(1, len(weeks_row)):
                 if str(weeks_row[i]).strip():
                     current_col = i
@@ -4969,19 +4966,11 @@ def set_investment_week():
     _investment_week_override = week_label
     cache.invalidate("investments_data")
 
-    # Also persist to sheet so the setting survives a server restart
-    if investments_sheet is not None:
-        def write_week():
-            raw = investments_sheet.get_all_values()
-            for i, row in enumerate(raw):
-                if row and str(row[0]).strip().lower().replace(" ", "") == "currentweek":
-                    investments_sheet.update_cell(i + 1, 2, week_label)
-                    return
-            investments_sheet.append_row(["CurrentWeek", week_label])
-        try:
-            retry_with_backoff(write_week)
-        except Exception:
-            pass  # in-memory override is already set; sheet write failure is non-fatal
+    # Persist to the Reserve sheet (same key-value row as ExchangeRate, TimePeriod, etc.)
+    try:
+        set_fed_value("InvestmentWeek", week_label)
+    except Exception as e:
+        app.logger.warning(f"set_investment_week: Reserve sheet write failed ({e}); in-memory override still active")
 
     flash(f"Investment current week set to {week_label}.", "success")
     return redirect(url_for("federal_reserve"))
