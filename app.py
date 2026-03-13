@@ -177,7 +177,7 @@ scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 credentials = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(credentials)
 
-sheet = client.open("Bank-Info")
+sheet = client.open("Bank-Info-Core")
 users_sheet = sheet.worksheet("Users")
 transactions_sheet = sheet.worksheet("Transactions")
 fed_sheet = sheet.worksheet("Reserve")
