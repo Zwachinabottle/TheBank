@@ -1874,6 +1874,18 @@
                 </form>
               </div>
 
+              <!-- Retroactive Fund Correction Section -->
+              <div style="margin-bottom: 20px; padding: 16px; background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.2); border-radius: var(--rounded);">
+                <h4 style="margin: 0 0 8px 0; color: #ef4444;">💰 Retroactive Investment Fund Correction</h4>
+                <p style="margin: 0 0 12px 0; font-size: 13px; color: var(--text-muted);">
+                  Apply retroactive correction to all students who had investment fund requests approved before the fix.
+                  This deducts only the amounts they actually invested in companies from their main account balances.
+                </p>
+                <form method="POST" action="/retroactive_fund_correction" onsubmit="return confirm('⚠️ Apply retroactive fund corrections to all students? This will deduct only actual invested amounts. Make sure you understand the impact before proceeding.');">
+                  <button type="submit" style="width: 100%; background: rgba(239,68,68,0.15); border: 1px solid #ef4444; color: #ef4444;">Apply Retroactive Correction</button>
+                </form>
+              </div>
+
               <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border); text-align: center;">
                 <p style="color: var(--text-muted); font-size: 13px; margin: 0;">
                   ⚠️ Use responsibly - creating too much money can cause inflation!

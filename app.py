@@ -4951,7 +4951,7 @@ def stocks_request_fund():
 @app.route("/approve_fund_request/<int:row_index>", methods=["POST"])
 @role_required("Banker")
 def approve_fund_request(row_index):
-    """Approve an investment fund request — add the amount to the student’s fund balance."""
+    """Approve an investment fund request — deduct from main account and add to investment fund balance."""
     try:
         def get_and_approve():
             row = fund_requests_sheet.row_values(row_index)
@@ -4961,8 +4961,19 @@ def approve_fund_request(row_index):
             return uname, amt
         username, amount = retry_with_backoff(get_and_approve)
         if username and amount > 0:
+            # Get current balance and deduct the approved amount from main account
+            current_balance = get_user_balance(username)
+            new_balance = round(current_balance - amount, 2)
+            update_balance(username, new_balance)
+
+            # Add the amount to investment fund
             update_investment_fund_balance(username, amount)
             new_total = get_investment_fund_balance(username)
+
+            # Record the transfer from main account to investment fund
+            add_transaction(username, "INVESTMENTS", amount,
+                          f"Transferred ${amount:.2f} to investment fund")
+
             log_action(session["user"], f"Approved investment fund of ${amount:.2f} for {username} (total fund: ${new_total:.2f})", amount, "Approved")
             flash(f"Approved ${amount:.2f} investment fund for {username}. Their fund total is now ${new_total:.2f}.", "success")
         cache.invalidate("pending_fund_requests")
@@ -4986,6 +4997,65 @@ def deny_fund_request(row_index):
         flash(f"Denied investment fund request for {username}.", "info")
     except Exception as e:
         flash(f"Error: {str(e)}", "error")
+    return redirect(url_for("federal_reserve"))
+
+
+@app.route("/retroactive_fund_correction", methods=["POST"])
+@role_required("Banker")
+def retroactive_fund_correction():
+    """Apply retroactive correction to all students who had approved fund requests before the fix.
+    This deducts only the amounts they actually invested in companies from their main account balances."""
+    try:
+        def get_all_approved():
+            return fund_requests_sheet.get_all_records()
+
+        def get_all_holdings():
+            return stock_holdings_sheet.get_all_records()
+
+        approved_requests = retry_with_backoff(get_all_approved)
+        stock_holdings = retry_with_backoff(get_all_holdings)
+
+        # Find all students with approved fund requests
+        students_with_approvals = set()
+        for req in approved_requests:
+            if req.get("Status") == "Approved":
+                username = req.get("Username", "").strip()
+                if username:
+                    students_with_approvals.add(username)
+
+        corrections_applied = 0
+        total_corrected = 0.0
+
+        # For each student with approval, calculate how much they actually invested
+        for username in students_with_approvals:
+            # Sum all investments this student made
+            total_invested = 0.0
+            for holding in stock_holdings:
+                if holding.get("Username") == username:
+                    invested = float(holding.get("InvestedAmount", 0) or 0)
+                    total_invested += invested
+
+            # Only apply correction if they actually invested something
+            if total_invested > 0:
+                with get_transfer_lock(username):
+                    cache.invalidate("all_users", f"user_balance_{username}", f"user_data_{username}")
+
+                    current_balance = get_user_balance(username)
+                    new_balance = round(current_balance - total_invested, 2)
+
+                    # Only apply if balance would remain >= 0
+                    if new_balance >= 0:
+                        update_balance(username, new_balance)
+                        add_transaction(username, "SYSTEM", total_invested,
+                                      f"Retroactive correction: deducted ${total_invested:.2f} for investments made from previously approved investment fund")
+                        corrections_applied += 1
+                        total_corrected += total_invested
+
+        log_action(session["user"], f"Applied retroactive investment corrections to {corrections_applied} students (${total_corrected:.2f} total deducted)", total_corrected, "Retroactive Correction")
+        flash(f"Retroactive correction applied: {corrections_applied} students corrected, ${total_corrected:.2f} total deducted (only actual investments).", "success")
+    except Exception as e:
+        flash(f"Error applying retroactive correction: {str(e)}", "error")
+
     return redirect(url_for("federal_reserve"))
 
 
