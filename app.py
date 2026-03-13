@@ -2068,10 +2068,13 @@ def get_user_investment_holdings(username):
     holdings = [r for r in all_rows if r.get("Username") == username]
     for h in holdings:
         try:
-            h["InvestedAmount"]       = float(h.get("InvestedAmount", 0) or 0)
-            h["NetWorthAtInvestment"] = float(h.get("NetWorthAtInvestment", 0) or 0)
+            # Handle both plain numbers and formatted currency strings (e.g., "$4,150.00")
+            invested_str = str(h.get("InvestedAmount", 0) or 0).replace("$", "").replace(",", "").strip()
+            nw_str = str(h.get("NetWorthAtInvestment", 0) or 0).replace("$", "").replace(",", "").strip()
+            h["InvestedAmount"] = float(invested_str) if invested_str else 0.0
+            h["NetWorthAtInvestment"] = float(nw_str) if nw_str else 0.0
         except (ValueError, TypeError):
-            h["InvestedAmount"]       = 0.0
+            h["InvestedAmount"] = 0.0
             h["NetWorthAtInvestment"] = 0.0
     cache.set(cache_key, holdings)
     return holdings
@@ -2139,8 +2142,9 @@ def get_pending_fund_requests():
 def invest_in_company(username, company_name, amount):
     """
     Invest `amount` dollars from `username`'s balance into `company_name`.
+    Requires both: approved investment fund AND main account balance.
     Returns: 'success' | 'company_not_found' | 'insufficient_balance'
-             | 'invalid_amount' | 'no_net_worth'
+             | 'invalid_amount' | 'no_net_worth' | 'no_fund'
     """
     if amount <= 0:
         return "invalid_amount"
@@ -2155,24 +2159,38 @@ def invest_in_company(username, company_name, amount):
         if company["netWorth"] <= 0:
             return "no_net_worth"
 
+        # Check investment fund (must have approved funds to invest)
         fund_balance = get_investment_fund_balance(username)
         if fund_balance <= 0:
             return "no_fund"
         if amount > fund_balance:
             return "insufficient_balance"
 
-        # Deduct entirely from the investment fund
+        # Check main account balance (actual funds to spend)
+        main_balance = get_user_balance(username)
+        if amount > main_balance:
+            return "insufficient_balance"
+
+        # Deduct from investment fund (reduce approved allocation)
         update_investment_fund_balance(username, -round(amount, 2))
+
+        # Deduct from main account balance (actual payment)
+        new_balance = round(main_balance - amount, 2)
+        update_balance(username, new_balance)
+
         add_transaction(username, "INVESTMENTS", amount,
-                        f"Invested ${amount:.2f} in {company_name} (from Investment Fund)")
+                        f"Invested ${amount:.2f} in {company_name}")
 
         # Update holdings (weighted average if already invested)
         def update_holdings():
             all_rows = stock_holdings_sheet.get_all_records()
             for idx, row in enumerate(all_rows, start=2):
                 if row.get("Username") == username and row.get("Company") == company_name:
-                    existing_inv  = float(row.get("InvestedAmount", 0) or 0)
-                    existing_nw   = float(row.get("NetWorthAtInvestment", 0) or 0)
+                    # Handle formatted currency strings (e.g., "$4,150.00")
+                    invested_str = str(row.get("InvestedAmount", 0) or 0).replace("$", "").replace(",", "").strip()
+                    nw_str = str(row.get("NetWorthAtInvestment", 0) or 0).replace("$", "").replace(",", "").strip()
+                    existing_inv = float(invested_str) if invested_str else 0.0
+                    existing_nw = float(nw_str) if nw_str else 0.0
                     new_inv       = existing_inv + amount
                     # Weighted average of entry net worth
                     new_entry_nw  = round(
@@ -4951,7 +4969,8 @@ def stocks_request_fund():
 @app.route("/approve_fund_request/<int:row_index>", methods=["POST"])
 @role_required("Banker")
 def approve_fund_request(row_index):
-    """Approve an investment fund request — deduct from main account and add to investment fund balance."""
+    """Approve an investment fund request — add the amount to the student's fund balance.
+    The main account balance is NOT affected until they actually invest."""
     try:
         def get_and_approve():
             row = fund_requests_sheet.row_values(row_index)
@@ -4961,18 +4980,9 @@ def approve_fund_request(row_index):
             return uname, amt
         username, amount = retry_with_backoff(get_and_approve)
         if username and amount > 0:
-            # Get current balance and deduct the approved amount from main account
-            current_balance = get_user_balance(username)
-            new_balance = round(current_balance - amount, 2)
-            update_balance(username, new_balance)
-
-            # Add the amount to investment fund
+            # Add the amount to investment fund (main account balance unchanged)
             update_investment_fund_balance(username, amount)
             new_total = get_investment_fund_balance(username)
-
-            # Record the transfer from main account to investment fund
-            add_transaction(username, "INVESTMENTS", amount,
-                          f"Transferred ${amount:.2f} to investment fund")
 
             log_action(session["user"], f"Approved investment fund of ${amount:.2f} for {username} (total fund: ${new_total:.2f})", amount, "Approved")
             flash(f"Approved ${amount:.2f} investment fund for {username}. Their fund total is now ${new_total:.2f}.", "success")
@@ -5062,6 +5072,20 @@ def retroactive_fund_correction():
         flash(f"Retroactive correction applied: {corrections_applied} students corrected, ${total_corrected:.2f} total deducted (only actual investments).", "success")
     except Exception as e:
         flash(f"Error applying retroactive correction: {str(e)}", "error")
+
+    return redirect(url_for("federal_reserve"))
+
+
+@app.route("/clear_investments_cache", methods=["POST"])
+@role_required("Banker")
+def clear_investments_cache():
+    """Clear the investments data cache to refresh manually-added data."""
+    try:
+        cache.invalidate("investments_data")
+        log_action(session["user"], "Cleared investments data cache", 0, "Cache Clear")
+        flash("✓ Investments cache cleared. Stock floor will refresh with latest data.", "success")
+    except Exception as e:
+        flash(f"Error clearing cache: {str(e)}", "error")
 
     return redirect(url_for("federal_reserve"))
 
