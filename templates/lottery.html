@@ -1249,6 +1249,103 @@
       box-shadow: 0 8px 24px rgba(245,200,66,0.5);
       transform: translateY(-1px);
     }
+
+    .banker-history-btn {
+      width: 100%;
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(36,191,240,0.08);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .banker-history-btn:hover {
+      border-color: var(--brand);
+      background: rgba(36,191,240,0.16);
+    }
+
+    .results-modal-box {
+      max-width: 760px;
+      width: min(92vw, 760px);
+      text-align: left;
+      padding: 32px 36px;
+    }
+
+    .results-meta {
+      margin: 8px 0 0;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .results-table-wrap {
+      margin-top: 22px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--bg2);
+    }
+
+    .results-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .results-table th,
+    .results-table td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+
+    .results-table th {
+      background: rgba(245,200,66,0.10);
+      color: #f5c842;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+    }
+
+    .results-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .results-amount {
+      font-weight: 800;
+      color: #7ce2ff;
+    }
+
+    .results-empty {
+      margin-top: 20px;
+      padding: 20px;
+      border-radius: 14px;
+      background: var(--bg2);
+      border: 1px dashed var(--border);
+      color: var(--text-muted);
+      font-size: 14px;
+      text-align: center;
+    }
+
+    @media (max-width: 720px) {
+      .results-modal-box {
+        padding: 24px 18px;
+      }
+
+      .results-table-wrap {
+        overflow-x: auto;
+      }
+
+      .results-table {
+        min-width: 560px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -1498,8 +1595,63 @@
             🎲 Save &amp; Run Drawing
           </button>
         </div>
+        <button type="button" class="banker-history-btn" id="open-past-results-modal">
+          📋 View Past Lottery Winners
+        </button>
         <input type="hidden" name="run_drawing" id="run-flag" value="0">
       </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="pastResultsModal">
+    <div class="modal-box results-modal-box">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+        <div>
+          <span class="banker-badge">📋 Past Lottery</span>
+          <h2 style="margin:10px 0 0;font-size:24px;">Winner Payout Table</h2>
+          {% if past_lottery_results %}
+          <p class="results-meta">
+            {{ past_lottery_results.draw_name or 'Latest Draw' }}{% if past_lottery_results.draw_date %} &middot; {{ past_lottery_results.draw_date }}{% endif %}
+          </p>
+          {% else %}
+          <p class="results-meta">No completed draw has been recorded yet.</p>
+          {% endif %}
+        </div>
+        <button class="buy-modal-close" onclick="document.getElementById('pastResultsModal').classList.remove('open')" aria-label="Close">✕</button>
+      </div>
+
+      {% if past_lottery_results and past_lottery_results.has_winners %}
+      <div class="results-table-wrap">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th>Winner</th>
+              <th>Prize</th>
+              <th>Winning Tickets</th>
+              <th>Payout</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in past_lottery_results.rows %}
+            <tr>
+              <td>{{ row.username }}</td>
+              <td>{{ row.prize_type }}</td>
+              <td>{{ row.ticket_count }}</td>
+              <td class="results-amount">${{ "%.2f"|format(row.amount) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% elif past_lottery_results %}
+      <div class="results-empty">No one won a payout in the most recent completed lottery.</div>
+      {% else %}
+      <div class="results-empty">Run a drawing first, then the latest winners and payouts will appear here.</div>
+      {% endif %}
+
+      <div style="margin-top:24px;text-align:right;">
+        <button class="modal-close-btn" onclick="document.getElementById('pastResultsModal').classList.remove('open')">Close</button>
+      </div>
     </div>
   </div>
   {% endif %}
@@ -1593,9 +1745,17 @@
     // ── Banker Controls modal ─────────────────────────────────
     const bankerModalBtn = document.getElementById('open-banker-modal');
     const bankerModal    = document.getElementById('bankerModal');
+    const pastResultsBtn = document.getElementById('open-past-results-modal');
+    const pastResultsModal = document.getElementById('pastResultsModal');
     if (bankerModalBtn && bankerModal) {
       bankerModalBtn.addEventListener('click', () => bankerModal.classList.add('open'));
       bankerModal.addEventListener('click', function(e) {
+        if (e.target === this) this.classList.remove('open');
+      });
+    }
+    if (pastResultsBtn && pastResultsModal) {
+      pastResultsBtn.addEventListener('click', () => pastResultsModal.classList.add('open'));
+      pastResultsModal.addEventListener('click', function(e) {
         if (e.target === this) this.classList.remove('open');
       });
     }

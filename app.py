@@ -1,9 +1,12 @@
+from collections import Counter
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import gspread
+from gspread.exceptions import APIError, SpreadsheetNotFound, WorksheetNotFound
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 from datetime import timedelta
+import atexit
 import time
 import re
 from threading import Lock, Thread
@@ -177,15 +180,45 @@ scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 credentials = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(credentials)
 
-# Open both sheets to distribute API quota load
-core_sheet = client.open("Bank-Info-Core")
-features_sheet = client.open("Bank-Info-Features")
+def open_workbook_with_fallback(*titles):
+    """Open the first existing workbook from a list of candidate titles."""
+    last_exc = None
+    for title in titles:
+        if not title:
+            continue
+        try:
+            return client.open(title)
+        except SpreadsheetNotFound as exc:
+            last_exc = exc
+            continue
+    if last_exc:
+        raise last_exc
+    raise SpreadsheetNotFound("No workbook title provided")
 
-# Core banking worksheets (highest API usage) → Bank-Info-Core
-users_sheet = core_sheet.worksheet("Users")
-transactions_sheet = core_sheet.worksheet("Transactions")
-fed_sheet = core_sheet.worksheet("Reserve")
-loans_sheet = core_sheet.worksheet("Loans")
+
+# Workbook split:
+# - Bank-Info-Users        → Users tab only (highest read/write load)
+# - Bank-Info-Activity     → Transactions tab only (high append/read load)
+# - Bank-Info-Reserve      → Reserve tab only
+# - Bank-Info-Loans        → Loans tab only
+# - Bank-Info-Core         → fallback / legacy core workbook
+# - Bank-Info-Features     → feature modules and logs
+core_sheet = open_workbook_with_fallback("Bank-Info-Core")
+users_book = open_workbook_with_fallback("Bank-Info-Users", "Bank-Info-Core")
+transactions_book = open_workbook_with_fallback(
+    "Bank-Info-Activity",
+    "Bank-Info-Transactions",
+    "Bank-Info-Core",
+)
+reserve_book = open_workbook_with_fallback("Bank-Info-Reserve", "Bank-Info-Core")
+loans_book = open_workbook_with_fallback("Bank-Info-Loans", "Bank-Info-Core")
+features_sheet = open_workbook_with_fallback("Bank-Info-Features")
+
+# Core banking worksheets
+users_sheet = users_book.worksheet("Users")
+transactions_sheet = transactions_book.worksheet("Transactions")
+fed_sheet = reserve_book.worksheet("Reserve")
+loans_sheet = loans_book.worksheet("Loans")
 
 # Feature worksheets (lower API usage) → Bank-Info-Features
 # Pre-load the Logs worksheet once at startup so log_action never pays the
@@ -221,6 +254,13 @@ try:
 except Exception:
     lottery_logs_sheet = features_sheet.add_worksheet("LotteryLogs", rows=5000, cols=5)
     lottery_logs_sheet.update([["Username", "Type", "Amount", "Date", "Description"]], 'A1:E1')
+
+# Pre-load the LotteryResults sheet (latest completed draw winners summary).
+try:
+    lottery_results_sheet = features_sheet.worksheet("LotteryResults")
+except Exception:
+    lottery_results_sheet = features_sheet.add_worksheet("LotteryResults", rows=5000, cols=6)
+    lottery_results_sheet.update([["DrawName", "DrawDate", "Username", "PrizeType", "Amount", "TicketCount"]], 'A1:F1')
 
 # Load the Investments sheet (teacher-maintained company net-worth table).
 try:
@@ -262,6 +302,30 @@ except Exception:
     fee_logs_sheet = features_sheet.add_worksheet("FeeLogs", rows=5000, cols=6)
     fee_logs_sheet.update([["Date", "Sender", "Receiver", "TransactionAmount", "FeeAmount", "Description"]], 'A1:F1')
 
+# Pre-load workflow/admin sheets used heavily by banker approval flows.
+try:
+    deletions_sheet = features_sheet.worksheet("Deletions")
+except Exception:
+    deletions_sheet = features_sheet.add_worksheet("Deletions", rows=1000, cols=5)
+
+try:
+    teacher_requests_sheet = features_sheet.worksheet("TeacherRequests")
+except Exception:
+    teacher_requests_sheet = features_sheet.add_worksheet("TeacherRequests", rows=100, cols=6)
+    teacher_requests_sheet.update([["Username", "Password", "Email", "Status", "ApprovedBy", "Requested Date"]], 'A1:F1')
+
+try:
+    role_requests_sheet = features_sheet.worksheet("RoleChangeRequests")
+except Exception:
+    role_requests_sheet = features_sheet.add_worksheet("RoleChangeRequests", rows=100, cols=6)
+    role_requests_sheet.update([["Username", "Current Role", "Requested Role", "Reason", "Request Date", "Status"]], 'A1:F1')
+
+DELETIONS_STATUS_COL = 5
+CASHBURNS_STATUS_COL = 4
+TEACHER_REQUEST_STATUS_COL = 4
+TEACHER_REQUEST_APPROVED_BY_COL = 5
+ROLE_REQUEST_STATUS_COL = 6
+
 # ---------- WRITE BUFFERS (deferred append_row → batched append_rows) ----------
 # Logs and FeeLogs are high-frequency audit writes with no user-facing urgency.
 # Queuing rows and flushing in bulk saves the most write-quota of any single change.
@@ -271,6 +335,18 @@ _fee_log_buffer = WriteBuffer(lambda: fee_logs_sheet,
                               cache_keys=["all_fee_logs_raw"], name="fee_logs")
 # Registry — background worker flushes all buffers on every FLUSH_INTERVAL tick.
 _ALL_WRITE_BUFFERS = [_log_buffer, _fee_log_buffer]
+
+
+def flush_all_write_buffers():
+    """Flush all deferred write buffers immediately."""
+    for buf in _ALL_WRITE_BUFFERS:
+        try:
+            buf.flush()
+        except Exception as exc:
+            print(f"[flush_all_write_buffers] error: {exc}")
+
+
+atexit.register(flush_all_write_buffers)
 
 # Ensure Transactions sheet has a proper header row
 trans_required_headers = ["Sender", "Receiver", "Amount", "Date", "Comment"]
@@ -355,7 +431,7 @@ def get_teacher_pin():
         return cached
     try:
         def fetch():
-            r = core_sheet.worksheet("Reserve")
+            r = fed_sheet
             config_cell = r.find("SystemConfig", in_column=1)
             if config_cell:
                 row = r.row_values(config_cell.row)
@@ -437,8 +513,16 @@ def get_all_users():
         return users_sheet.get_all_records(expected_headers=expected)
     
     users = retry_with_backoff(fetch)
-    cache.set(cache_key, users, ttl=300)  # 5-min freshness for user list
+    cache.set(cache_key, users, ttl=900)  # 15-min freshness; writes invalidate eagerly
     return users
+
+
+def get_user_row_num(username):
+    """Return the 1-based sheet row for a username using cached user data."""
+    for idx, user in enumerate(get_all_users(), start=2):
+        if user.get("Username") == username:
+            return idx
+    return None
 
 def get_all_users_with_balances():
     """Alias for get_all_users (already returns balance data)"""
@@ -447,8 +531,10 @@ def get_all_users_with_balances():
 def update_balance(username, new_balance):
     """Update balance and invalidate relevant caches"""
     def update():
-        cell = users_sheet.find(username)
-        users_sheet.update_cell(cell.row, 3, new_balance)
+        row_num = get_user_row_num(username)
+        if row_num is None:
+            raise ValueError(f"User not found: {username}")
+        users_sheet.update_cell(row_num, 3, new_balance)
     
     retry_with_backoff(update)
     
@@ -550,8 +636,10 @@ def get_user_balance(username):
     
     # Fallback to direct lookup if user not found in cache
     def fetch():
-        cell = users_sheet.find(username)
-        return float(users_sheet.cell(cell.row, 3).value)
+        row_num = get_user_row_num(username)
+        if row_num is None:
+            raise ValueError(f"User not found: {username}")
+        return float(users_sheet.cell(row_num, 3).value)
     
     balance = retry_with_backoff(fetch)
     cache.set(cache_key, balance)
@@ -709,10 +797,12 @@ def transfer_money(sender, receiver, amount, comment):
             return "insufficient_balance"
 
         def batch_update():
-            sender_cell = users_sheet.find(sender)
-            receiver_cell = users_sheet.find(receiver)
-            users_sheet.update_cell(sender_cell.row, 3, sender_balance - amount)
-            users_sheet.update_cell(receiver_cell.row, 3, receiver_balance + amount)
+            sender_row = get_user_row_num(sender)
+            receiver_row = get_user_row_num(receiver)
+            if sender_row is None or receiver_row is None:
+                raise ValueError("Sender or receiver not found")
+            users_sheet.update_cell(sender_row, 3, sender_balance - amount)
+            users_sheet.update_cell(receiver_row, 3, receiver_balance + amount)
 
         retry_with_backoff(batch_update)
         add_transaction(sender, receiver, amount, comment)
@@ -757,8 +847,10 @@ def freeze_account(username):
     """Freeze account and invalidate cache"""
     frozen_col = _USERS_COLS.get("Frozen", 4)  # column pre-computed at startup
     def update():
-        cell = users_sheet.find(username)
-        users_sheet.update_cell(cell.row, frozen_col, "Yes")
+        row_num = get_user_row_num(username)
+        if row_num is None:
+            raise ValueError(f"User not found: {username}")
+        users_sheet.update_cell(row_num, frozen_col, "Yes")
     
     retry_with_backoff(update)
     cache.invalidate("all_users", f"user_data_{username}", f"frozen_{username}")
@@ -767,8 +859,10 @@ def unfreeze_account(username):
     """Unfreeze account and invalidate cache"""
     frozen_col = _USERS_COLS.get("Frozen", 4)  # column pre-computed at startup
     def update():
-        cell = users_sheet.find(username)
-        users_sheet.update_cell(cell.row, frozen_col, "No")
+        row_num = get_user_row_num(username)
+        if row_num is None:
+            raise ValueError(f"User not found: {username}")
+        users_sheet.update_cell(row_num, frozen_col, "No")
     
     retry_with_backoff(update)
     cache.invalidate("all_users", f"user_data_{username}", f"frozen_{username}")
@@ -855,10 +949,11 @@ def is_frozen(username):
     
     # Fallback to direct lookup
     def fetch():
-        cell = users_sheet.find(username)
-        header = users_sheet.row_values(1)
-        frozen_col = header.index("Frozen") + 1
-        value = users_sheet.cell(cell.row, frozen_col).value
+        row_num = get_user_row_num(username)
+        if row_num is None:
+            return False
+        frozen_col = _USERS_COLS.get("Frozen", 4)
+        value = users_sheet.cell(row_num, frozen_col).value
         return str(value).strip().lower() == "yes"
     
     is_frozen_status = retry_with_backoff(fetch)
@@ -910,9 +1005,12 @@ def ensure_logs_sheet():
     """Ensure Logs sheet has proper headers"""
     try:
         logs_sheet_check = features_sheet.worksheet("Logs")
-    except:
+    except WorksheetNotFound:
         # Create Logs sheet if it doesn't exist
         logs_sheet_check = features_sheet.add_worksheet("Logs", rows=1000, cols=5)
+    except APIError as exc:
+        print(f"[ensure_logs_sheet] skipped: {exc}")
+        return
     
     required_headers = ["User", "Action", "Amount", "Acceptance", "Timestamp"]
     existing_headers = logs_sheet_check.row_values(1)
@@ -930,8 +1028,11 @@ def ensure_deletions_sheet():
     """Ensure Deletions sheet exists with proper headers"""
     try:
         deletions_sheet = features_sheet.worksheet("Deletions")
-    except:
+    except WorksheetNotFound:
         deletions_sheet = features_sheet.add_worksheet("Deletions", rows=1000, cols=5)
+    except APIError as exc:
+        print(f"[ensure_deletions_sheet] skipped: {exc}")
+        return
 
     required_headers = ["Username", "Requester", "Reason", "Date", "Status"]
     existing_headers = deletions_sheet.row_values(1)
@@ -1036,7 +1137,8 @@ def get_fed_columns():
         return cached
     
     def fetch():
-        header = fed_sheet.row_values(1)
+        all_values = fed_sheet.get_all_values()
+        header = all_values[0] if all_values else []
         return {name: idx + 1 for idx, name in enumerate(header)}
     
     columns = retry_with_backoff(fetch)
@@ -1063,8 +1165,11 @@ def get_federal_reserve_stats():
         return cached
     
     def fetch():
-        cols = get_fed_columns()
-        values = fed_sheet.row_values(2)
+        all_values = fed_sheet.get_all_values()
+        header = all_values[0] if all_values else []
+        values = all_values[1] if len(all_values) > 1 else []
+        cols = {name: idx + 1 for idx, name in enumerate(header)}
+        cache.set("fed_columns", cols, ttl=SheetCache.LONG_TTL)
         
         data = {}
         for key, col in cols.items():
@@ -1444,8 +1549,10 @@ def set_weekly_payment(username, amount):
     """Set weekly payment amount for a Personal account"""
     payment_col = _USERS_COLS.get("WeeklyPayment", 10)  # column pre-computed at startup
     def update():
-        cell = users_sheet.find(username)
-        users_sheet.update_cell(cell.row, payment_col, amount)
+        row_num = get_user_row_num(username)
+        if row_num is None:
+            raise ValueError(f"User not found: {username}")
+        users_sheet.update_cell(row_num, payment_col, amount)
     
     retry_with_backoff(update)
     cache.invalidate("all_users", f"user_data_{username}")
@@ -1573,7 +1680,6 @@ def get_pending_deletions():
     
     try:
         def fetch():
-            deletions_sheet = features_sheet.worksheet("Deletions")
             return deletions_sheet.get_all_records()
         
         rows = retry_with_backoff(fetch)
@@ -1628,7 +1734,6 @@ def get_pending_teacher_requests():
     
     try:
         def fetch():
-            teacher_requests_sheet = features_sheet.worksheet("TeacherRequests")
             # Use expected_headers to ensure correct column mapping
             expected = ["Username", "Password", "Email", "Status", "ApprovedBy", "Requested Date"]
             return teacher_requests_sheet.get_all_records(expected_headers=expected)
@@ -1658,7 +1763,6 @@ def get_pending_role_change_requests():
     
     try:
         def fetch():
-            role_requests_sheet = features_sheet.worksheet("RoleChangeRequests")
             # get_all_records uses the sheet's own header row by default — no extra row_values(1) needed
             return role_requests_sheet.get_all_records()
         
@@ -1705,24 +1809,20 @@ def get_pending_loans():
 
 def approve_deletion(deletion_row_index):
     """Approve and execute account deletion"""
-    def get_deletion():
-        deletions_sheet = features_sheet.worksheet("Deletions")
-        header = deletions_sheet.row_values(1)
-        deletion = deletions_sheet.row_values(deletion_row_index)
-        return deletions_sheet, header, deletion
-    
-    deletions_sheet, header, deletion = retry_with_backoff(get_deletion)
-    col_index = {name: idx + 1 for idx, name in enumerate(header)}
-    
-    username = deletion[col_index["Username"] - 1]
+    pending = next((r for r in get_pending_deletions() if r["row"] == deletion_row_index), None)
+    if not pending:
+        return
+    username = pending["Username"]
     
     # Delete user from Users sheet
     try:
         def delete_user():
-            cell = users_sheet.find(username)
-            users_sheet.delete_rows(cell.row)
+            row_num = get_user_row_num(username)
+            if row_num is None:
+                raise ValueError(f"User not found: {username}")
+            users_sheet.delete_rows(row_num)
             # Update deletion status
-            deletions_sheet.update_cell(deletion_row_index, col_index["Status"], "Approved")
+            deletions_sheet.update_cell(deletion_row_index, DELETIONS_STATUS_COL, "Approved")
         
         retry_with_backoff(delete_user)
         
@@ -1737,10 +1837,7 @@ def approve_deletion(deletion_row_index):
 def deny_deletion(deletion_row_index):
     """Deny account deletion request"""
     def get_and_update():
-        deletions_sheet = features_sheet.worksheet("Deletions")
-        header = deletions_sheet.row_values(1)
-        col_index = {name: idx + 1 for idx, name in enumerate(header)}
-        deletions_sheet.update_cell(deletion_row_index, col_index["Status"], "Denied")
+        deletions_sheet.update_cell(deletion_row_index, DELETIONS_STATUS_COL, "Denied")
     
     retry_with_backoff(get_and_update)
     log_action(session["user"], "Denied deletion request", None, "Denied")
@@ -1748,16 +1845,11 @@ def deny_deletion(deletion_row_index):
 
 def approve_cash_burn(burn_row_index):
     """Approve cash burn and remove money"""
-    def get_burn():
-        header = cashburns_sheet.row_values(1)
-        burn = cashburns_sheet.row_values(burn_row_index)
-        return header, burn
-    
-    header, burn = retry_with_backoff(get_burn)
-    col_index = {name: idx + 1 for idx, name in enumerate(header)}
-    
-    requester = burn[col_index["Requester"] - 1]
-    amount = float(burn[col_index["Amount"] - 1])
+    pending = next((r for r in get_pending_cash_burns() if r["row"] == burn_row_index), None)
+    if not pending:
+        return
+    requester = pending["Requester"]
+    amount = float(pending["Amount"])
     
     # Remove money from account
     current_balance = get_user_balance(requester)
@@ -1768,7 +1860,7 @@ def approve_cash_burn(burn_row_index):
     
     # Update status
     def update():
-        cashburns_sheet.update_cell(burn_row_index, col_index["Status"], "Approved")
+        cashburns_sheet.update_cell(burn_row_index, CASHBURNS_STATUS_COL, "Approved")
     
     retry_with_backoff(update)
     
@@ -1779,9 +1871,7 @@ def approve_cash_burn(burn_row_index):
 def deny_cash_burn(burn_row_index):
     """Deny cash burn request"""
     def get_and_update():
-        header = cashburns_sheet.row_values(1)
-        col_index = {name: idx + 1 for idx, name in enumerate(header)}
-        cashburns_sheet.update_cell(burn_row_index, col_index["Status"], "Denied")
+        cashburns_sheet.update_cell(burn_row_index, CASHBURNS_STATUS_COL, "Denied")
     
     retry_with_backoff(get_and_update)
     log_action(session["user"], "Denied cash burn request", None, "Denied")
@@ -2585,7 +2675,7 @@ def change_username():
         
         # Update username in Transactions sheet (both Sender and Receiver columns)
         def update_transactions():
-            transactions_sheet = core_sheet.worksheet("Transactions")
+            transactions_sheet = transactions_book.worksheet("Transactions")
             header = transactions_sheet.row_values(1)
             all_rows = transactions_sheet.get_all_values()
             
@@ -3300,24 +3390,21 @@ def set_project_end_date_route():
 @app.route("/approve_deletion/<int:row_index>", methods=["POST"])
 @role_required("Banker")
 def approve_deletion_route(row_index):
-    def get_deletion():
-        deletions_sheet = features_sheet.worksheet("Deletions")
-        deletion = deletions_sheet.row_values(row_index)
-        header = deletions_sheet.row_values(1)
-        return deletions_sheet, deletion, header
-    
-    deletions_sheet, deletion, header = retry_with_backoff(get_deletion)
-    col_index = {name: idx + 1 for idx, name in enumerate(header)}
-    
-    username = deletion[col_index["Username"] - 1]
+    pending = next((r for r in get_pending_deletions() if r["row"] == row_index), None)
+    if not pending:
+        flash("Deletion request not found", "error")
+        return redirect(url_for("federal_reserve"))
+    username = pending["Username"]
     
     # Delete user from Users sheet
     try:
         def delete():
-            cell = users_sheet.find(username)
-            users_sheet.delete_rows(cell.row)
+            row_num = get_user_row_num(username)
+            if row_num is None:
+                raise ValueError(f"User not found: {username}")
+            users_sheet.delete_rows(row_num)
             # Update deletion status
-            deletions_sheet.update_cell(row_index, col_index["Status"], "Approved")
+            deletions_sheet.update_cell(row_index, DELETIONS_STATUS_COL, "Approved")
         
         retry_with_backoff(delete)
         
@@ -3336,10 +3423,7 @@ def approve_deletion_route(row_index):
 @role_required("Banker")
 def deny_deletion_route(row_index):
     def get_and_update():
-        deletions_sheet = features_sheet.worksheet("Deletions")
-        header = deletions_sheet.row_values(1)
-        col_index = {name: idx + 1 for idx, name in enumerate(header)}
-        deletions_sheet.update_cell(row_index, col_index["Status"], "Denied")
+        deletions_sheet.update_cell(row_index, DELETIONS_STATUS_COL, "Denied")
     
     retry_with_backoff(get_and_update)
     flash("Deletion request denied!")
@@ -3350,16 +3434,11 @@ def deny_deletion_route(row_index):
 @role_required("Banker")
 def approve_cashburn_route(row_index):
     try:
-        def get_burn():
-            cashburn = cashburns_sheet.row_values(row_index)
-            header = cashburns_sheet.row_values(1)
-            return cashburn, header
-        
-        cashburn, header = retry_with_backoff(get_burn)
-        col_index = {name: idx + 1 for idx, name in enumerate(header)}
-        
-        requester = cashburn[col_index["Requester"] - 1]
-        amount = float(cashburn[col_index["Amount"] - 1])
+        pending = next((r for r in get_pending_cash_burns() if r["row"] == row_index), None)
+        if not pending:
+            raise ValueError("Cash burn request not found")
+        requester = pending["Requester"]
+        amount = float(pending["Amount"])
         
         # Deduct from user's balance
         current_balance = get_user_balance(requester)
@@ -3370,7 +3449,7 @@ def approve_cashburn_route(row_index):
         
         # Update status
         def update():
-            cashburns_sheet.update_cell(row_index, col_index["Status"], "Approved")
+            cashburns_sheet.update_cell(row_index, CASHBURNS_STATUS_COL, "Approved")
         
         retry_with_backoff(update)
         
@@ -3394,9 +3473,7 @@ def approve_cashburn_route(row_index):
 def deny_cashburn_route(row_index):
     try:
         def get_and_update():
-            header = cashburns_sheet.row_values(1)
-            col_index = {name: idx + 1 for idx, name in enumerate(header)}
-            cashburns_sheet.update_cell(row_index, col_index["Status"], "Denied")
+            cashburns_sheet.update_cell(row_index, CASHBURNS_STATUS_COL, "Denied")
         
         retry_with_backoff(get_and_update)
         flash("Cash burn request denied!")
@@ -3418,15 +3495,11 @@ def deny_cashburn_route(row_index):
 def approve_teacher_request(row_index):
     try:
         def get_request_and_create():
-            teacher_requests_sheet = features_sheet.worksheet("TeacherRequests")
-            header = teacher_requests_sheet.row_values(1)
-            row = teacher_requests_sheet.row_values(row_index)
-            
-            # Expected header: Username, Password, Email, Status, ApprovedBy, Requested Date
-            if len(row) >= 3:
-                username = row[0]  # Username
-                password = row[1]  # Password
-                email = row[2] if len(row) > 2 else ""  # Email
+            pending = next((r for r in get_pending_teacher_requests() if r["row"] == row_index), None)
+            if pending:
+                username = pending["Username"]
+                password = pending["Password"]
+                email = pending["Email"]
                 
                 # Generate card number and PIN for teacher
                 card_number = generate_card_number()
@@ -3436,9 +3509,8 @@ def approve_teacher_request(row_index):
                 users_sheet.append_row([username, password, "0", "No", "Teacher", email, "Personal", card_number, pin])
                 
                 # Update request status
-                col_index = {name: idx + 1 for idx, name in enumerate(header)}
-                teacher_requests_sheet.update_cell(row_index, col_index.get("Status", 4), "Approved")
-                teacher_requests_sheet.update_cell(row_index, col_index.get("ApprovedBy", 5), session["user"])
+                teacher_requests_sheet.update_cell(row_index, TEACHER_REQUEST_STATUS_COL, "Approved")
+                teacher_requests_sheet.update_cell(row_index, TEACHER_REQUEST_APPROVED_BY_COL, session["user"])
                 
                 return username
             return None
@@ -3473,14 +3545,10 @@ def approve_teacher_request(row_index):
 def deny_teacher_request(row_index):
     try:
         def get_and_update():
-            teacher_requests_sheet = features_sheet.worksheet("TeacherRequests")
-            row = teacher_requests_sheet.row_values(row_index)
-            username = row[0] if len(row) > 0 else "Unknown"
-            
-            header = teacher_requests_sheet.row_values(1)
-            col_index = {name: idx + 1 for idx, name in enumerate(header)}
-            teacher_requests_sheet.update_cell(row_index, col_index.get("Status", 4), "Denied")
-            teacher_requests_sheet.update_cell(row_index, col_index.get("ApprovedBy", 5), session["user"])
+            pending = next((r for r in get_pending_teacher_requests() if r["row"] == row_index), None)
+            username = pending["Username"] if pending else "Unknown"
+            teacher_requests_sheet.update_cell(row_index, TEACHER_REQUEST_STATUS_COL, "Denied")
+            teacher_requests_sheet.update_cell(row_index, TEACHER_REQUEST_APPROVED_BY_COL, session["user"])
             
             return username
         
@@ -3504,26 +3572,23 @@ def deny_teacher_request(row_index):
 @role_required("Banker")
 def approve_role_change(row_index):
     def get_request_and_update():
-        role_requests_sheet = features_sheet.worksheet("RoleChangeRequests")
-        row = role_requests_sheet.row_values(row_index)
+        pending = next((r for r in get_pending_role_change_requests() if r["row"] == row_index), None)
         
-        if len(row) >= 3:
-            username = row[0]
-            requested_role = row[2]
+        if pending:
+            username = pending["Username"]
+            requested_role = pending["RequestedRole"]
             
             # Update user's role in Users sheet
             all_users = get_all_users()
             user = next((u for u in all_users if u["Username"] == username), None)
             
             if user:
-                cell = users_sheet.find(username)
-                if cell:
-                    users_sheet.update_cell(cell.row, 5, requested_role)  # Column 5 is Role
+                row_num = get_user_row_num(username)
+                if row_num is not None:
+                    users_sheet.update_cell(row_num, 5, requested_role)  # Column 5 is Role
             
             # Update request status
-            header = role_requests_sheet.row_values(1)
-            col_index = {name: idx + 1 for idx, name in enumerate(header)}
-            role_requests_sheet.update_cell(row_index, col_index["Status"], "Approved")
+            role_requests_sheet.update_cell(row_index, ROLE_REQUEST_STATUS_COL, "Approved")
             
             return username, requested_role
         return None, None
@@ -3544,13 +3609,9 @@ def approve_role_change(row_index):
 @role_required("Banker")
 def deny_role_change(row_index):
     def get_and_update():
-        role_requests_sheet = features_sheet.worksheet("RoleChangeRequests")
-        row = role_requests_sheet.row_values(row_index)
-        username = row[0] if len(row) > 0 else "Unknown"
-        
-        header = role_requests_sheet.row_values(1)
-        col_index = {name: idx + 1 for idx, name in enumerate(header)}
-        role_requests_sheet.update_cell(row_index, col_index["Status"], "Denied")
+        pending = next((r for r in get_pending_role_change_requests() if r["row"] == row_index), None)
+        username = pending["Username"] if pending else "Unknown"
+        role_requests_sheet.update_cell(row_index, ROLE_REQUEST_STATUS_COL, "Denied")
         
         return username
     
@@ -3971,7 +4032,7 @@ def save_system_setting():
     
     try:
         # Get the Reserve sheet (for storing config)
-        fed_sheet_local = core_sheet.worksheet("Reserve")
+        fed_sheet_local = fed_sheet
         
         # Get current config or create structure
         try:
@@ -4055,19 +4116,11 @@ def change_user_role():
         return jsonify({"success": False, "message": "Cannot change Bank account role"})
     
     try:
-        # Find the user in the Users sheet
-        user_cell = users_sheet.find(username, in_column=1)
-        if not user_cell:
+        row_num = get_user_row_num(username)
+        if row_num is None:
             return jsonify({"success": False, "message": f"User {username} not found"})
-        
-        row_num = user_cell.row
-        
-        # Get header to find Role column index
-        # Expected: Username, Password, Balance, Frozen, Role, Email, AccountType, CardNumber, PIN
-        header = users_sheet.row_values(1)
-        try:
-            role_col_index = header.index("Role") + 1  # +1 because gspread uses 1-based indexing
-        except ValueError:
+        role_col_index = _USERS_COLS.get("Role")
+        if not role_col_index:
             return jsonify({"success": False, "message": "Role column not found in sheet"})
         
         # Update the role (Column 5 - Role is at index 4, so column 5)
@@ -4117,9 +4170,9 @@ def get_bank_account():
 def update_bank_balance(new_balance):
     """Update the bank account balance"""
     def update():
-        cell = users_sheet.find("Bank")
-        if cell:
-            users_sheet.update_cell(cell.row, 3, new_balance)
+        row_num = get_user_row_num("Bank")
+        if row_num is not None:
+            users_sheet.update_cell(row_num, 3, new_balance)
         else:
             # Create bank account if not found
             users_sheet.append_row(["Bank", "BankPassword", str(new_balance), "No", "System", "", "System", "0000-0000-0000-0000", "0000"])
@@ -4430,7 +4483,7 @@ def get_user_lottery_tickets(username):
 
 
 def invalidate_lottery_caches(username=None):
-    cache.invalidate("all_users", "bank_account", "all_lottery_logs_raw")
+    cache.invalidate("all_users", "bank_account", "all_lottery_logs_raw", "latest_lottery_results")
     if username:
         cache.invalidate(
             f"lottery_tickets_{username}",
@@ -4474,6 +4527,85 @@ def get_lottery_winning():
     except Exception:
         result = None
     cache.set(cache_key, result or {"drawn": False}, ttl=120)
+    return result
+
+
+def save_lottery_results(draw_name, draw_date, result_rows):
+    """Persist summarized winner rows for a completed lottery drawing."""
+    rows_to_append = []
+    for row in result_rows:
+        rows_to_append.append([
+            draw_name,
+            draw_date,
+            row.get("username", ""),
+            row.get("prize_type", ""),
+            f"{float(row.get('amount', 0.0)):.2f}",
+            int(row.get("ticket_count", 0)),
+        ])
+
+    if not rows_to_append:
+        rows_to_append.append([draw_name, draw_date, "", "No Winners", "0.00", 0])
+
+    def append():
+        lottery_results_sheet.append_rows(rows_to_append, value_input_option="RAW")
+
+    retry_with_backoff(append)
+    cache.invalidate("latest_lottery_results")
+
+
+def get_latest_lottery_results():
+    """Return summarized results for the latest completed lottery drawing."""
+    cache_key = "latest_lottery_results"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    def fetch():
+        return lottery_results_sheet.get_all_records()
+
+    rows = retry_with_backoff(fetch)
+    if not rows:
+        cache.set(cache_key, None, ttl=SheetCache.SHORT_TTL)
+        return None
+
+    latest_draw_name = str(rows[-1].get("DrawName") or "").strip()
+    latest_draw_date = str(rows[-1].get("DrawDate") or "").strip()
+    latest_rows = [
+        row for row in rows
+        if str(row.get("DrawName") or "").strip() == latest_draw_name
+        and str(row.get("DrawDate") or "").strip() == latest_draw_date
+    ]
+
+    normalized_rows = []
+    has_winners = False
+    for row in latest_rows:
+        prize_type = str(row.get("PrizeType") or "").strip()
+        username = str(row.get("Username") or "").strip()
+        if prize_type == "No Winners":
+            continue
+        try:
+            amount = float(row.get("Amount") or 0)
+        except (ValueError, TypeError):
+            amount = 0.0
+        try:
+            ticket_count = int(float(row.get("TicketCount") or 0))
+        except (ValueError, TypeError):
+            ticket_count = 0
+        normalized_rows.append({
+            "username": username,
+            "prize_type": prize_type,
+            "amount": amount,
+            "ticket_count": ticket_count,
+        })
+        has_winners = True
+
+    result = {
+        "draw_name": latest_draw_name,
+        "draw_date": latest_draw_date,
+        "rows": normalized_rows,
+        "has_winners": has_winners,
+    }
+    cache.set(cache_key, result, ttl=SheetCache.SHORT_TTL)
     return result
 
 
@@ -4521,6 +4653,7 @@ def lottery():
     user_tickets = get_user_lottery_tickets(username)
     user_balance = get_user_balance(username)
     winning      = get_lottery_winning()
+    past_lottery_results = get_latest_lottery_results()
     is_banker    = session.get("role") in ("Banker", "Teacher")
     return render_template(
         "lottery.html",
@@ -4528,6 +4661,7 @@ def lottery():
         user_tickets=user_tickets,
         user_balance=user_balance,
         winning=winning,
+        past_lottery_results=past_lottery_results,
         is_banker=is_banker,
     )
 
@@ -4691,13 +4825,17 @@ def lottery_draw():
         flash("Vex Ball must be between 1 and 12.", "error")
         return redirect(url_for("lottery"))
 
-    set_lottery_winning(nums, vex, draw_name)
+    draw_label = draw_name or datetime.now().strftime("%Y-%m-%d")
+    draw_date = datetime.now().strftime("%Y-%m-%d")
+
+    set_lottery_winning(nums, vex, draw_label)
 
     if run:
         winning_set = set(nums)
         winners_jackpot = []
         winners_match   = []
         winners_vex     = []
+        result_rows     = []
 
         def _get_tickets():
             return lottery_sheet.get_all_records()
@@ -4731,37 +4869,56 @@ def lottery_draw():
         # ── Award jackpot (split if multiple winners) ────────────
         jackpot_amount = pools["prize"]
         if winners_jackpot:
-            unique_jackpot = list(set(winners_jackpot))
+            jackpot_counts = Counter(winners_jackpot)
             share = round(jackpot_amount / len(winners_jackpot), 2)
-            for uname in unique_jackpot:
-                count = winners_jackpot.count(uname)
+            for uname, count in jackpot_counts.items():
                 award = round(share * count, 2)
                 bal = get_user_balance(uname)
                 update_balance(uname, round(bal + award, 2))
                 add_lottery_log(uname, "Jackpot Win", award,
-                                f"Jackpot winner! Drawing: {draw_name or 'Draw'}")
+                                f"Jackpot winner! Drawing: {draw_label}")
+                result_rows.append({
+                    "username": uname,
+                    "prize_type": "Jackpot",
+                    "amount": award,
+                    "ticket_count": count,
+                })
             update_balance("LotteryPrize", 0.0)
 
         # ── Award $50 for 4-number match (no Vex) ───────────────
-        for uname in winners_match:
+        for uname, count in Counter(winners_match).items():
+            award = round(50.0 * count, 2)
             bal = get_user_balance(uname)
-            update_balance(uname, round(bal + 50.0, 2))
-            add_lottery_log(uname, "4-Number Win", 50.0,
-                            f"Matched all 4 numbers! Drawing: {draw_name or 'Draw'}")
+            update_balance(uname, round(bal + award, 2))
+            add_lottery_log(uname, "4-Number Win", award,
+                            f"Matched all 4 numbers! Drawing: {draw_label}")
             pools = get_lottery_pool_balances()
-            update_balance("LotteryPrize", max(0.0, round(pools["prize"] - 50.0, 2)))
+            update_balance("LotteryPrize", max(0.0, round(pools["prize"] - award, 2)))
+            result_rows.append({
+                "username": uname,
+                "prize_type": "4-Number Win",
+                "amount": award,
+                "ticket_count": count,
+            })
 
         # ── Award $2 refund for Vex Ball only ────────────────────
-        for uname in winners_vex:
+        for uname, count in Counter(winners_vex).items():
+            award = round(2.0 * count, 2)
             bal = get_user_balance(uname)
-            update_balance(uname, round(bal + 2.0, 2))
-            add_lottery_log(uname, "Vex Ball Win", 2.0,
-                            f"Vex Ball match refund. Drawing: {draw_name or 'Draw'}")
+            update_balance(uname, round(bal + award, 2))
+            add_lottery_log(uname, "Vex Ball Win", award,
+                            f"Vex Ball match refund. Drawing: {draw_label}")
             pools = get_lottery_pool_balances()
-            update_balance("LotteryPrize", max(0.0, round(pools["prize"] - 2.0, 2)))
+            update_balance("LotteryPrize", max(0.0, round(pools["prize"] - award, 2)))
+            result_rows.append({
+                "username": uname,
+                "prize_type": "Vex Ball Win",
+                "amount": award,
+                "ticket_count": count,
+            })
 
         # ── Mark all Active tickets as drawn ─────────────────────
-        label = draw_name or datetime.now().strftime("%Y-%m-%d")
+        label = draw_label
 
         def _mark_done():
             all_vals = lottery_sheet.get_all_values()
@@ -4783,6 +4940,7 @@ def lottery_draw():
                 lottery_sheet.batch_update(batch)
 
         retry_with_backoff(_mark_done)
+        save_lottery_results(draw_label, draw_date, result_rows)
 
         # Bust all caches
         cache.invalidate("all_users")
@@ -5082,18 +5240,16 @@ def _background_worker():
     """Proactively warm hot read-caches and flush deferred write-buffers.
 
     Schedule:
-        Every 30 s  — flush all WriteBuffer instances (logs, fee_logs)
-        Every 120 s — force-refresh the most-read sheet caches so nearly
-                      every user request hits warm in-memory data instead of
-                      making a live Google Sheets API call.
+        Every 5 s   — flush all WriteBuffer instances (logs, fee_logs)
+        Every 900 s — lightly refresh only the most important shared cache.
     """
-    FLUSH_INTERVAL   = 30   # seconds
-    REFRESH_INTERVAL = 120  # seconds
+    FLUSH_INTERVAL   = 5    # seconds
+    REFRESH_INTERVAL = 900  # seconds
     last_flush   = 0.0
     last_refresh = 0.0
 
     while True:
-        time.sleep(10)
+        time.sleep(2)
         now = time.time()
 
         # ── Flush deferred write buffers ──────────────────────────────────
@@ -5108,10 +5264,6 @@ def _background_worker():
         # ── Proactively warm the most-read caches ─────────────────────────
         if now - last_refresh >= REFRESH_INTERVAL:
             refresh_targets = [
-                ("all_users",            ["all_users"],            get_all_users),
-                ("all_transactions_raw", ["all_transactions_raw"], get_all_transactions_raw),
-                ("all_loans_raw",        ["all_loans_raw"],        get_all_loans_raw),
-                ("all_logs_raw",         ["all_logs_raw"],         get_all_logs_raw),
                 ("fed_stats",            ["fed_stats"],            get_federal_reserve_stats),
             ]
             for fn_name, invalidate_keys, fn in refresh_targets:
@@ -5128,4 +5280,4 @@ _bg_thread.start()
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
