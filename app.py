@@ -5032,8 +5032,15 @@ def retroactive_fund_correction():
             total_invested = 0.0
             for holding in stock_holdings:
                 if holding.get("Username") == username:
-                    invested = float(holding.get("InvestedAmount", 0) or 0)
-                    total_invested += invested
+                    invested_str = str(holding.get("InvestedAmount", 0) or 0)
+                    # Remove dollar sign and commas from formatted currency strings
+                    invested_str = invested_str.replace("$", "").replace(",", "").strip()
+                    try:
+                        invested = float(invested_str) if invested_str else 0.0
+                        total_invested += invested
+                    except ValueError:
+                        # Skip if can't parse
+                        continue
 
             # Only apply correction if they actually invested something
             if total_invested > 0:
