@@ -188,7 +188,8 @@ loans_sheet = sheet.worksheet("Loans")
 try:
     logs_sheet = sheet.worksheet("Logs")
 except Exception:
-    logs_sheet = sheet.add_worksheet("Logs", rows=1000, cols=5)
+    logs_sheet = sheet.add_worksheet("Logs", rows=1000, cols=6)
+    logs_sheet.update([["Date", "User", "Action", "Target", "Amount", "Result"]], 'A1:F1')
 
 # Pre-load the CashBurns worksheet once at startup for the same reason.
 try:
@@ -257,6 +258,13 @@ except Exception:
     fee_logs_sheet = sheet.add_worksheet("FeeLogs", rows=5000, cols=6)
     fee_logs_sheet.update([["Date", "Sender", "Receiver", "TransactionAmount", "FeeAmount", "Description"]], 'A1:F1')
 
+# Pre-load InvestmentLogs sheet (investment buys, sells, and fund events).
+try:
+    investment_logs_sheet = sheet.worksheet("InvestmentLogs")
+except Exception:
+    investment_logs_sheet = sheet.add_worksheet("InvestmentLogs", rows=2000, cols=6)
+    investment_logs_sheet.update([["Date", "Username", "Action", "Company", "Amount", "Details"]], 'A1:F1')
+
 # ---------- WRITE BUFFERS (deferred append_row → batched append_rows) ----------
 # Logs and FeeLogs are high-frequency audit writes with no user-facing urgency.
 # Queuing rows and flushing in bulk saves the most write-quota of any single change.
@@ -268,12 +276,12 @@ _fee_log_buffer = WriteBuffer(lambda: fee_logs_sheet,
 _ALL_WRITE_BUFFERS = [_log_buffer, _fee_log_buffer]
 
 # Ensure Transactions sheet has a proper header row
-trans_required_headers = ["Sender", "Receiver", "Amount", "Date", "Comment"]
+trans_required_headers = ["Date", "Sender", "Receiver", "Amount", "Type", "Comment"]
 trans_header = transactions_sheet.row_values(1)
-if not trans_header or trans_header[0] != "Sender":
+if not trans_header or trans_header[0] != "Date":
     if not trans_header:
         # Sheet is empty — write headers to row 1
-        transactions_sheet.update([trans_required_headers], 'A1:E1')
+        transactions_sheet.update([trans_required_headers], 'A1:F1')
     else:
         # Sheet has data rows but no header — insert header row at the top
         transactions_sheet.insert_row(trans_required_headers, 1)
@@ -450,17 +458,17 @@ def update_balance(username, new_balance):
     # Invalidate caches that depend on user data
     cache.invalidate("all_users", f"user_balance_{username}", f"user_data_{username}")
 
-def add_transaction(sender, receiver, amount, comment=""):
+def add_transaction(sender, receiver, amount, txn_type="Transfer", comment=""):
     """Add transaction and invalidate transaction cache"""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not comment:
         comment = "No comment"
-    
+
     def append():
-        transactions_sheet.append_row([sender, receiver, amount, now, comment])
-    
+        transactions_sheet.append_row([now, sender, receiver, amount, txn_type, comment])
+
     retry_with_backoff(append)
-    
+
     # Invalidate transaction caches for both users (also bust shared raw caches)
     cache.invalidate(f"transactions_{sender}", f"transactions_{receiver}",
                      "all_transactions_raw", "all_logs_raw")
@@ -479,7 +487,7 @@ def log_fee(sender, receiver, transaction_amount, fee_amount, description=""):
 
 
 def add_lottery_log(username, log_type, amount, description=""):
-    """Write a lottery event to the LotteryLogs sheet instead of transactions."""
+    """Write a lottery event to the LotteryLogs sheet."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not description:
         description = log_type
@@ -637,7 +645,7 @@ def get_user_transactions(username):
     for log in log_rows:
         action = log.get("Action", "")
         teacher = log.get("User", "")
-        timestamp = log.get("Timestamp", "")
+        timestamp = log.get("Date", "")
         try:
             amount = float(log.get("Amount", 0))
         except (ValueError, TypeError):
@@ -703,14 +711,23 @@ def transfer_money(sender, receiver, amount, comment):
         if sender_balance < amount:
             return "insufficient_balance"
 
-        def batch_update():
-            sender_cell = users_sheet.find(sender)
-            receiver_cell = users_sheet.find(receiver)
-            users_sheet.update_cell(sender_cell.row, 3, sender_balance - amount)
-            users_sheet.update_cell(receiver_cell.row, 3, receiver_balance + amount)
+        def do_balance_update():
+            all_rows = users_sheet.get_all_values()
+            updates = []
+            for idx, row in enumerate(all_rows[1:], start=2):
+                if not row:
+                    continue
+                if row[0] == sender:
+                    updates.append({"range": f"C{idx}", "values": [[round(sender_balance - amount, 4)]]})
+                elif row[0] == receiver:
+                    updates.append({"range": f"C{idx}", "values": [[round(receiver_balance + amount, 4)]]})
+                if len(updates) == 2:
+                    break
+            if updates:
+                users_sheet.batch_update(updates)
 
-        retry_with_backoff(batch_update)
-        add_transaction(sender, receiver, amount, comment)
+        retry_with_backoff(do_balance_update)
+        add_transaction(sender, receiver, amount, "Transfer", comment)
 
         # 1% transaction fee — created as new money added to the bank account
         fee = round(amount * 0.01, 2)
@@ -720,7 +737,6 @@ def transfer_money(sender, receiver, amount, comment):
                 bank_account = get_bank_account()
                 bank_balance = float(bank_account.get("Balance", 0))
                 update_bank_balance(bank_balance + fee)
-                add_transaction("System", "Bank", fee, f"1% transaction fee on transfer from {sender} to {receiver}")
                 log_fee(sender, receiver, amount, fee)
             except Exception as fee_err:
                 print(f"WARNING: Could not collect 1% fee for transfer {sender}->{receiver} ${amount}: {fee_err}")
@@ -1000,7 +1016,7 @@ def process_banker_profit_share(triggering_banker: str) -> dict:
         uname = b["Username"]
         cur_bal = round(float(b.get("Balance", 0)), 2)
         update_balance(uname, cur_bal + per_banker)
-        add_transaction("Bank", uname, per_banker,
+        add_transaction("Bank", uname, per_banker, "BankerPayout",
                         f"Weekly banker profit share (50% of ${profit:.2f} bank profit)")
 
     log_action(triggering_banker,
@@ -1296,7 +1312,7 @@ def process_loan_payments():
             
             # Add transaction
             day_number = int(loan.get('Weeks', 0)) - weeks_remaining + 1
-            add_transaction(requester, "Bank", weekly_payment, f"Loan payment (day {day_number})")
+            add_transaction(requester, "Bank", weekly_payment, "LoanPayment", f"Loan payment (day {day_number})")
             
             # Update loan record
             weeks_remaining -= 1
@@ -1326,9 +1342,9 @@ def process_loan_payments():
             
             # Log the payment (include warning if balance went negative)
             if new_balance < 0:
-                log_action("System", f"Auto-deducted ${weekly_payment} loan payment from {requester} (balance now NEGATIVE: ${new_balance:.2f}) → Bank: ${new_bank_balance:.2f}", weekly_payment, "Loan Payment")
+                log_action("System", f"Auto-deducted ${weekly_payment} loan payment from {requester} (balance now NEGATIVE: ${new_balance:.2f}) → Bank: ${new_bank_balance:.2f}", weekly_payment, "Loan Payment", target=requester)
             else:
-                log_action("System", f"Auto-deducted ${weekly_payment} loan payment from {requester} (balance: ${new_balance:.2f}) → Bank: ${new_bank_balance:.2f}", weekly_payment, "Loan Payment")
+                log_action("System", f"Auto-deducted ${weekly_payment} loan payment from {requester} (balance: ${new_balance:.2f}) → Bank: ${new_bank_balance:.2f}", weekly_payment, "Loan Payment", target=requester)
     
     # Invalidate caches
     cache.invalidate("all_loans", "all_loans_raw")
@@ -1498,9 +1514,9 @@ def approve_loan(loan_row_index):
     
     if amount > lendable_funds:
         # Not enough funds to approve - would need to deny or create money
-        log_action(session.get("user", "System"), 
-                  f"Cannot approve loan for {requester}: Insufficient bank capacity (${lendable_funds:.2f} available, ${amount:.2f} requested)", 
-                  amount, "Denied - Insufficient Funds")
+        log_action(session.get("user", "System"),
+                  f"Cannot approve loan for {requester}: Insufficient bank capacity (${lendable_funds:.2f} available, ${amount:.2f} requested)",
+                  amount, "Denied - Insufficient Funds", target=requester)
         # Still deny the loan in the sheet
         loans_sheet.update_cell(loan_row_index, col_index["Status"], "Denied")
         cache.invalidate("pending_loans", "all_loans", "all_loans_raw", f"user_loans_{requester}")
@@ -1515,7 +1531,7 @@ def approve_loan(loan_row_index):
     update_balance(requester, current_balance + amount)
     
     # Add transaction
-    add_transaction("Bank", requester, amount, "Loan disbursement")
+    add_transaction("Bank", requester, amount, "LoanDisbursement", "Loan disbursement")
     
     # Update loan status — batch all 3 cell writes into one API call
     def update_loan():
@@ -1532,9 +1548,9 @@ def approve_loan(loan_row_index):
     retry_with_backoff(update_loan)
     
     # Log action
-    log_action(session.get("user", "System"), 
-              f"Approved loan for {requester}: ${amount} (Bank balance: ${bank_balance:.2f} → ${new_bank_balance:.2f})", 
-              amount, "Approved")
+    log_action(session.get("user", "System"),
+              f"Approved loan for {requester}: ${amount} (Bank balance: ${bank_balance:.2f} → ${new_bank_balance:.2f})",
+              amount, "Approved", target=requester)
     
     # Invalidate loan caches
     cache.invalidate("pending_loans", "all_loans", "all_loans_raw", f"user_loans_{requester}")
@@ -1554,7 +1570,7 @@ def deny_loan(loan_row_index):
         loans_sheet.update_cell(loan_row_index, col_index["Status"], "Denied")
     
     retry_with_backoff(update)
-    log_action(session.get("user", "System"), f"Denied loan for {requester}", None, "Denied")
+    log_action(session.get("user", "System"), f"Denied loan for {requester}", None, "Denied", target=requester)
     
     # Invalidate loan caches
     cache.invalidate("pending_loans", "all_loans", "all_loans_raw", f"user_loans_{requester}")
@@ -1722,7 +1738,7 @@ def approve_deletion(deletion_row_index):
         retry_with_backoff(delete_user)
         
         # Log action
-        log_action(session["user"], f"Approved deletion of {username}", None, "Approved")
+        log_action(session["user"], f"Approved deletion of {username}", None, "Approved", target=username)
         
         # Invalidate caches
         cache.invalidate("all_users", "pending_deletions", f"user_data_{username}")
@@ -1759,7 +1775,7 @@ def approve_cash_burn(burn_row_index):
     update_balance(requester, current_balance - amount)
     
     # Add transaction
-    add_transaction(requester, "Cash Burn", amount, "Cash burn approved")
+    add_transaction(requester, "Cash Burn", amount, "CashBurn", "Cash burn approved")
     
     # Update status
     def update():
@@ -1768,7 +1784,7 @@ def approve_cash_burn(burn_row_index):
     retry_with_backoff(update)
     
     # Log action
-    log_action(session["user"], f"Approved cash burn for {requester}: ${amount}", amount, "Approved")
+    log_action(session["user"], f"Approved cash burn for {requester}: ${amount}", amount, "Approved", target=requester)
     cache.invalidate("pending_cashburns")
 
 def deny_cash_burn(burn_row_index):
@@ -2178,8 +2194,8 @@ def invest_in_company(username, company_name, amount):
         new_balance = round(main_balance - amount, 2)
         update_balance(username, new_balance)
 
-        add_transaction(username, "INVESTMENTS", amount,
-                        f"Invested ${amount:.2f} in {company_name}")
+        add_investment_log(username, "BuyInvestment", company_name, round(amount, 2),
+                           f"Invested ${amount:.2f} in {company_name}")
 
         # Update holdings (weighted average if already invested)
         def update_holdings():
@@ -2196,8 +2212,10 @@ def invest_in_company(username, company_name, amount):
                     new_entry_nw  = round(
                         (existing_nw * existing_inv + company["netWorth"] * amount) / new_inv, 4
                     )
-                    stock_holdings_sheet.update_cell(idx, 3, round(new_inv, 4))
-                    stock_holdings_sheet.update_cell(idx, 4, new_entry_nw)
+                    stock_holdings_sheet.batch_update([
+                        {"range": f"C{idx}", "values": [[round(new_inv, 4)]]},
+                        {"range": f"D{idx}", "values": [[new_entry_nw]]},
+                    ])
                     return
             stock_holdings_sheet.append_row(
                 [username, company_name, round(amount, 4), round(company["netWorth"], 4)]
@@ -2264,10 +2282,14 @@ def divest_from_company(username, company_name, withdraw_amount):
         # Credit user balance
         balance = get_user_balance(username)
         update_balance(username, round(balance + withdraw_amount, 2))
-        add_transaction("INVESTMENTS", username, withdraw_amount,
-                        f"Withdrew ${withdraw_amount:.2f} from {company_name}")
 
-        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", "all_users")
+        # Add withdrawn amount back to investment fund for reinvestment
+        update_investment_fund_balance(username, round(withdraw_amount, 2))
+
+        add_investment_log(username, "SellInvestment", company_name, round(withdraw_amount, 2),
+                           f"Withdrew ${withdraw_amount:.2f} from {company_name}")
+
+        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", f"inv_fund_{username}", "all_users")
         return "success"
 
 
@@ -2338,27 +2360,29 @@ def process_loans():
                 
                 if current_balance >= weekly_payment:
                     update_balance(username, current_balance - weekly_payment)
-                    add_transaction(username, "Bank", weekly_payment, "Automatic loan payment")
+                    add_transaction(username, "Bank", weekly_payment, "LoanPayment", "Automatic loan payment")
                     
                     # Update loan
                     weeks_remaining = int(loan.get("WeeksRemaining", 0)) - 1
                     total_paid = float(loan.get("TotalPaid", 0)) + weekly_payment
                     
                     def update_loan():
-                        loans_sheet.update_cell(idx, col_index["WeeksRemaining"], weeks_remaining)
-                        loans_sheet.update_cell(idx, col_index["TotalPaid"], total_paid)
-                        
+                        updates = [
+                            {"range": f"{_col_letter(col_index['WeeksRemaining'])}{idx}", "values": [[weeks_remaining]]},
+                            {"range": f"{_col_letter(col_index['TotalPaid'])}{idx}", "values": [[total_paid]]},
+                        ]
                         if weeks_remaining <= 0:
-                            loans_sheet.update_cell(idx, col_index["Status"], "Completed")
+                            updates.append({"range": f"{_col_letter(col_index['Status'])}{idx}", "values": [["Completed"]]})
                         else:
                             new_date = (next_payment + timedelta(days=7)).strftime("%Y-%m-%d")
-                            loans_sheet.update_cell(idx, col_index["NextPaymentDate"], new_date)
+                            updates.append({"range": f"{_col_letter(col_index['NextPaymentDate'])}{idx}", "values": [[new_date]]})
+                        loans_sheet.batch_update(updates)
                     
                     retry_with_backoff(update_loan)
                     processed_count += 1
                 else:
                     # Insufficient funds - mark as late?
-                    log_action("System", f"Insufficient funds for {username} loan payment", weekly_payment, "Failed")
+                    log_action("System", f"Insufficient funds for {username} loan payment", weekly_payment, "Failed", target=username)
                     
             except Exception as e:
                 print(f"Error processing loan for {username}: {e}")
@@ -2588,107 +2612,120 @@ def change_username():
             header = users_sheet.row_values(1)
             all_rows = users_sheet.get_all_values()
             username_col = header.index("Username") + 1
-            
+            updates = []
             for row_idx, row in enumerate(all_rows[1:], start=2):
                 if row[0] == current_username:
-                    users_sheet.update_cell(row_idx, username_col, new_username)
+                    updates.append({"range": f"{_col_letter(username_col)}{row_idx}", "values": [[new_username]]})
                     break
-        
+            if updates:
+                users_sheet.batch_update(updates)
+
         retry_with_backoff(update_users)
-        
+
         # Update username in Transactions sheet (both Sender and Receiver columns)
         def update_transactions():
             transactions_sheet = sheet.worksheet("Transactions")
             header = transactions_sheet.row_values(1)
             all_rows = transactions_sheet.get_all_values()
-            
             sender_col = header.index("Sender") + 1
             receiver_col = header.index("Receiver") + 1
-            
+            updates = []
             for row_idx, row in enumerate(all_rows[1:], start=2):
                 if len(row) >= max(sender_col, receiver_col):
                     if row[sender_col - 1] == current_username:
-                        transactions_sheet.update_cell(row_idx, sender_col, new_username)
+                        updates.append({"range": f"{_col_letter(sender_col)}{row_idx}", "values": [[new_username]]})
                     if row[receiver_col - 1] == current_username:
-                        transactions_sheet.update_cell(row_idx, receiver_col, new_username)
-        
+                        updates.append({"range": f"{_col_letter(receiver_col)}{row_idx}", "values": [[new_username]]})
+            if updates:
+                transactions_sheet.batch_update(updates)
+
         retry_with_backoff(update_transactions)
-        
+
         # Update username in Loans sheet
         def update_loans():
             header = loans_sheet.row_values(1)
             all_rows = loans_sheet.get_all_values()
-            
             if "Username" in header:
                 username_col = header.index("Username") + 1
+                updates = []
                 for row_idx, row in enumerate(all_rows[1:], start=2):
                     if len(row) >= username_col and row[username_col - 1] == current_username:
-                        loans_sheet.update_cell(row_idx, username_col, new_username)
-        
+                        updates.append({"range": f"{_col_letter(username_col)}{row_idx}", "values": [[new_username]]})
+                if updates:
+                    loans_sheet.batch_update(updates)
+
         retry_with_backoff(update_loans)
-        
+
         # Update username in Logs sheet if it exists
         try:
             def update_logs():
                 header = logs_sheet.row_values(1)
                 all_rows = logs_sheet.get_all_values()
-                
                 if "User" in header:
                     user_col = header.index("User") + 1
+                    updates = []
                     for row_idx, row in enumerate(all_rows[1:], start=2):
                         if len(row) >= user_col and row[user_col - 1] == current_username:
-                            logs_sheet.update_cell(row_idx, user_col, new_username)
-            
+                            updates.append({"range": f"{_col_letter(user_col)}{row_idx}", "values": [[new_username]]})
+                    if updates:
+                        logs_sheet.batch_update(updates)
+
             retry_with_backoff(update_logs)
         except:
             pass  # Logs sheet might not exist or might not have records
-        
+
         # Update username in CashBurns sheet if it exists
         try:
             def update_cashburns():
                 header = cashburns_sheet.row_values(1)
                 all_rows = cashburns_sheet.get_all_values()
-                
                 if "Requester" in header:
                     requester_col = header.index("Requester") + 1
+                    updates = []
                     for row_idx, row in enumerate(all_rows[1:], start=2):
                         if len(row) >= requester_col and row[requester_col - 1] == current_username:
-                            cashburns_sheet.update_cell(row_idx, requester_col, new_username)
-            
+                            updates.append({"range": f"{_col_letter(requester_col)}{row_idx}", "values": [[new_username]]})
+                    if updates:
+                        cashburns_sheet.batch_update(updates)
+
             retry_with_backoff(update_cashburns)
         except:
             pass
-        
+
         # Update username in Deletions sheet if it exists
         try:
             def update_deletions():
                 deletions_sheet = sheet.worksheet("Deletions")
                 header = deletions_sheet.row_values(1)
                 all_rows = deletions_sheet.get_all_values()
-                
                 if "Username" in header:
                     username_col = header.index("Username") + 1
+                    updates = []
                     for row_idx, row in enumerate(all_rows[1:], start=2):
                         if len(row) >= username_col and row[username_col - 1] == current_username:
-                            deletions_sheet.update_cell(row_idx, username_col, new_username)
-            
+                            updates.append({"range": f"{_col_letter(username_col)}{row_idx}", "values": [[new_username]]})
+                    if updates:
+                        deletions_sheet.batch_update(updates)
+
             retry_with_backoff(update_deletions)
         except:
             pass
-        
+
         # Update username in RoleChangeRequests sheet if it exists
         try:
             def update_role_requests():
                 role_requests_sheet = sheet.worksheet("RoleChangeRequests")
                 header = role_requests_sheet.row_values(1)
                 all_rows = role_requests_sheet.get_all_values()
-                
                 if "Username" in header:
                     username_col = header.index("Username") + 1
+                    updates = []
                     for row_idx, row in enumerate(all_rows[1:], start=2):
                         if len(row) >= username_col and row[username_col - 1] == current_username:
-                            role_requests_sheet.update_cell(row_idx, username_col, new_username)
-            
+                            updates.append({"range": f"{_col_letter(username_col)}{row_idx}", "values": [[new_username]]})
+                    if updates:
+                        role_requests_sheet.batch_update(updates)
+
             retry_with_backoff(update_role_requests)
         except:
             pass
@@ -3022,12 +3059,12 @@ def delete_account():
         print(f"Error writing deletion request: {e}")
     
     # Log action with pending status
-    log_action(session["user"], f"Requested deletion of {username}: {reason}", None, "Pending")
+    log_action(session["user"], f"Requested deletion of {username}: {reason}", None, "Pending", target=username)
     
     flash(f"Deletion request for {username} is pending approval")
     return redirect(url_for("teacher_tools"))
 
-def log_action(user, action, amount, acceptance):
+def log_action(user, action, amount, acceptance, target=""):
     """Queue a log entry to the deferred write buffer.
 
     Rows are flushed to the Logs sheet in a single append_rows() call by the
@@ -3035,8 +3072,21 @@ def log_action(user, action, amount, acceptance):
     Uses the module-level logs_sheet handle to avoid a runtime worksheet() API lookup.
     """
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    _log_buffer.queue([user, action, amount or "", acceptance, now])
+    _log_buffer.queue([now, user, action, target, amount or "", acceptance])
     # Cache invalidation happens automatically when the buffer flushes.
+
+
+def add_investment_log(username, action, company, amount, details=""):
+    """Write an investment event (buy, sell, fund request/approval) to InvestmentLogs."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not details:
+        details = action
+
+    def append():
+        investment_logs_sheet.append_row([now, username, action, company, amount, details])
+
+    retry_with_backoff(append)
+    cache.invalidate(f"investment_logs_{username}", "all_investment_logs_raw")
     
 @app.route("/add_money", methods=["POST"])
 @role_required("Teacher", "Banker")
@@ -3054,7 +3104,7 @@ def add_money():
     update_balance(username, current_balance + amount)
     
     # Log action
-    log_action(session["user"], f"Added ${amount} to {username}", amount, "Approved")
+    log_action(session["user"], f"Added ${amount} to {username}", amount, "Approved", target=username)
     cache.invalidate(f"transactions_{username}")
     
     flash(f"Added ${amount} to {username}")
@@ -3076,7 +3126,7 @@ def subtract_money():
     update_balance(username, current_balance - amount)
     
     # Log action
-    log_action(session["user"], f"Subtracted ${amount} from {username}", amount, "Approved")
+    log_action(session["user"], f"Subtracted ${amount} from {username}", amount, "Approved", target=username)
     cache.invalidate(f"transactions_{username}")
     
     flash(f"Subtracted ${amount} from {username}")
@@ -3252,9 +3302,9 @@ def convert_personal_to_company_route():
 
     note = (f"Currency conversion: ${amount:.2f} personal → ${company_received:.2f} company "
             f"(rate {rate:.4f})")
-    add_transaction("Currency Conversion", personal_username, -amount, note)
-    add_transaction("Currency Conversion", company_username, company_received, note)
-    log_action(session["user"], note, amount, "Currency Conversion")
+    add_transaction("Currency Conversion", personal_username, -amount, "CurrencyConversion", note)
+    add_transaction("Currency Conversion", company_username, company_received, "CurrencyConversion", note)
+    log_action(session["user"], note, amount, "Currency Conversion", target=personal_username)
 
     flash(f"Converted ${amount:.2f} from {personal_username} → ${company_received:.2f} deposited to {company_username} (rate {rate:.4f}x)")
     return redirect(url_for("federal_reserve"))
@@ -3286,7 +3336,7 @@ def set_weekly_payment_route():
             return redirect(url_for("teacher_tools"))
         
         set_weekly_payment(username, amount_float)
-        log_action(session["user"], f"Set weekly payment for {username} to ${amount_float}", amount_float, "Set Payment")
+        log_action(session["user"], f"Set weekly payment for {username} to ${amount_float}", amount_float, "Set Payment", target=username)
         flash(f"Set weekly payment for {username} to ${amount_float:.2f}")
         return redirect(url_for("teacher_tools"))
     except ValueError:
@@ -3334,7 +3384,7 @@ def approve_deletion_route(row_index):
         
         retry_with_backoff(delete)
         
-        log_action(session["user"], f"Approved deletion of {username}", None, "Approved")
+        log_action(session["user"], f"Approved deletion of {username}", None, "Approved", target=username)
         flash(f"Account {username} has been deleted!")
         
         # Invalidate caches
@@ -3379,7 +3429,7 @@ def approve_cashburn_route(row_index):
         update_balance(requester, current_balance - amount)
         
         # Add transaction
-        add_transaction(requester, "Cash Burn", amount, "Cash burn approved")
+        add_transaction(requester, "Cash Burn", amount, "CashBurn", "Cash burn approved")
         
         # Update status
         def update():
@@ -3387,7 +3437,7 @@ def approve_cashburn_route(row_index):
         
         retry_with_backoff(update)
         
-        log_action(session["user"], f"Approved cash burn for {requester}: ${amount}", amount, "Approved")
+        log_action(session["user"], f"Approved cash burn for {requester}: ${amount}", amount, "Approved", target=requester)
         flash("Cash burn approved!")
         cache.invalidate("pending_cashburns")
         
@@ -3450,8 +3500,10 @@ def approve_teacher_request(row_index):
                 
                 # Update request status
                 col_index = {name: idx + 1 for idx, name in enumerate(header)}
-                teacher_requests_sheet.update_cell(row_index, col_index.get("Status", 4), "Approved")
-                teacher_requests_sheet.update_cell(row_index, col_index.get("ApprovedBy", 5), session["user"])
+                teacher_requests_sheet.batch_update([
+                    {"range": f"{_col_letter(col_index.get('Status', 4))}{row_index}", "values": [["Approved"]]},
+                    {"range": f"{_col_letter(col_index.get('ApprovedBy', 5))}{row_index}", "values": [[session["user"]]]},
+                ])
                 
                 return username
             return None
@@ -3459,7 +3511,7 @@ def approve_teacher_request(row_index):
         username = retry_with_backoff(get_request_and_create)
         
         if username:
-            log_action(session["user"], f"Approved teacher account for {username}", None, "Approved")
+            log_action(session["user"], f"Approved teacher account for {username}", None, "Approved", target=username)
             flash(f"Teacher account created for {username}!", "success")
         else:
             flash("Error approving teacher request", "error")
@@ -3498,7 +3550,7 @@ def deny_teacher_request(row_index):
             return username
         
         username = retry_with_backoff(get_and_update)
-        log_action(session["user"], f"Denied teacher account request for {username}", None, "Denied")
+        log_action(session["user"], f"Denied teacher account request for {username}", None, "Denied", target=username)
         flash(f"Teacher request for {username} denied", "info")
         cache.invalidate("pending_teacher_requests")
         
@@ -3544,7 +3596,7 @@ def approve_role_change(row_index):
     username, new_role = retry_with_backoff(get_request_and_update)
     
     if username:
-        log_action(session["user"], f"Approved role change for {username} to {new_role}", None, "Approved")
+        log_action(session["user"], f"Approved role change for {username} to {new_role}", None, "Approved", target=username)
         flash(f"Role changed! {username} is now a {new_role}.", "success")
         cache.invalidate_pattern("users")
         cache.invalidate("pending_role_change_requests")
@@ -3568,7 +3620,7 @@ def deny_role_change(row_index):
         return username
     
     username = retry_with_backoff(get_and_update)
-    log_action(session["user"], f"Denied role change request for {username}", None, "Denied")
+    log_action(session["user"], f"Denied role change request for {username}", None, "Denied", target=username)
     flash(f"Role change request for {username} denied", "info")
     cache.invalidate("pending_role_change_requests")
     return redirect(url_for("federal_reserve"))
@@ -3900,10 +3952,10 @@ def transfer_from_bank():
     update_balance(recipient, recipient_balance + amount)
     
     # Add transaction
-    add_transaction(recipient, "Bank Transfer", amount, f"From bank: {reason}")
+    add_transaction(recipient, "Bank Transfer", amount, "BankTransfer", f"From bank: {reason}")
     
     # Log the action
-    log_action(session["user"], f"Transferred ${amount} from bank to {recipient}: {reason}", amount, "Approved")
+    log_action(session["user"], f"Transferred ${amount} from bank to {recipient}: {reason}", amount, "Approved", target=recipient)
     
     flash(f"Successfully transferred ${amount:.2f} to {recipient}!", "success")
     cache.invalidate_pattern("bank")
@@ -3954,8 +4006,6 @@ def backfill_transaction_fees():
         bank_account = get_bank_account()
         bank_balance = float(bank_account.get("Balance", 0))
         update_bank_balance(bank_balance + total_fee)
-        add_transaction("System", "Bank", total_fee,
-                        f"Historical 1% fee backfill — {counted} past transactions")
         log_fee("[Backfill]", "[Multiple]", 0, total_fee,
                 f"Historical 1% fee backfill — {counted} past transactions")
 
@@ -4087,7 +4137,7 @@ def change_user_role():
         users_sheet.update_cell(row_num, role_col_index, new_role)
         
         # Log the action
-        log_action(session["user"], f"Changed {username}'s role to {new_role}", None, "Approved")
+        log_action(session["user"], f"Changed {username}'s role to {new_role}", None, "Approved", target=username)
         
         # Invalidate cache
         cache.invalidate_pattern("users")
@@ -4241,13 +4291,13 @@ def adjust_money():
     if action == "add":
         new_balance = current_balance + amount
         log_msg = f"Added ${amount} to {username}" + (f" — {comment}" if comment else "")
-        log_action(session["user"], log_msg, amount, "Approved")
-        add_transaction(session["user"], username, amount, comment or "Teacher adjustment")
+        log_action(session["user"], log_msg, amount, "Approved", target=username)
+        add_transaction(session["user"], username, amount, "TeacherAdjust", comment or "Teacher adjustment")
     else:
         new_balance = current_balance - amount
         log_msg = f"Subtracted ${amount} from {username}" + (f" — {comment}" if comment else "")
-        log_action(session["user"], log_msg, amount, "Approved")
-        add_transaction(f"DEDUCT:{session['user']}", username, amount, comment or "Teacher deduction")
+        log_action(session["user"], log_msg, amount, "Approved", target=username)
+        add_transaction(f"DEDUCT:{session['user']}", username, amount, "TeacherDeduct", comment or "Teacher deduction")
     
     update_balance(username, new_balance)
     cache.invalidate(f"transactions_{username}")
@@ -4268,7 +4318,7 @@ def set_money():
     
     update_balance(username, amount)
     log_msg = f"Set balance to ${amount} for {username}" + (f" — {comment}" if comment else "")
-    log_action(session["user"], log_msg, amount, "Approved")
+    log_action(session["user"], log_msg, amount, "Approved", target=username)
     cache.invalidate(f"transactions_{username}")
     
     flash(f"Balance set to ${amount} for {username}")
@@ -4600,22 +4650,22 @@ def lottery_buy():
                     nums = [int(entry[j]) for j in range(4)]
                     vex  = int(entry[4])
                     for n in nums:
-                        if not (1 <= n <= 8):
+                        if not (1 <= n <= 9):
                             raise ValueError("main number out of range")
                     if len(set(nums)) != 4:
                         raise ValueError("numbers must be unique")
-                    if not (1 <= vex <= 10):
+                    if not (1 <= vex <= 12):
                         raise ValueError("vex out of range")
                     tickets_data.append((sorted(nums), vex))
             except (ValueError, TypeError, KeyError, IndexError) as exc:
-                flash(f"Invalid ticket numbers: {exc}. Main: 4 unique from 1-8, Vex Ball: 1-10.", "error")
+                flash(f"Invalid ticket numbers: {exc}. Main: 4 unique from 1-9, Vex Ball: 1-12.", "error")
                 return redirect(url_for("lottery"))
         else:
             flash("Please use the Pick Numbers form to enter your numbers.", "error")
             return redirect(url_for("lottery"))
     else:
         tickets_data = [
-            (sorted(_random.sample(range(1, 9), 4)), _random.randint(1, 10))
+            (sorted(_random.sample(range(1, 10), 4)), _random.randint(1, 12))
             for _ in range(quantity)
         ]
 
@@ -4694,14 +4744,14 @@ def lottery_draw():
 
     # Validate
     for n in nums:
-        if not (1 <= n <= 8):
-            flash("All 4 main numbers must be between 1 and 8.", "error")
+        if not (1 <= n <= 9):
+            flash("All 4 main numbers must be between 1 and 9.", "error")
             return redirect(url_for("lottery"))
     if len(set(nums)) != 4:
         flash("All 4 numbers must be unique.", "error")
         return redirect(url_for("lottery"))
-    if not (1 <= vex <= 10):
-        flash("Vex Ball must be between 1 and 10.", "error")
+    if not (1 <= vex <= 12):
+        flash("Vex Ball must be between 1 and 12.", "error")
         return redirect(url_for("lottery"))
 
     set_lottery_winning(nums, vex, draw_name)
@@ -4961,6 +5011,8 @@ def stocks_request_fund():
     def append():
         fund_requests_sheet.append_row([username, amount, "Pending", now])
     retry_with_backoff(append)
+    add_investment_log(username, "FundRequested", "", amount,
+                       f"Requested investment fund of ${amount:.2f}")
     cache.invalidate("pending_fund_requests")
     flash(f"Investment fund request of ${amount:.2f} sent to your banker 🪙 You’ll be able to invest once it’s approved!", "info")
     return redirect(url_for("stocks"))
@@ -4984,7 +5036,8 @@ def approve_fund_request(row_index):
             update_investment_fund_balance(username, amount)
             new_total = get_investment_fund_balance(username)
 
-            log_action(session["user"], f"Approved investment fund of ${amount:.2f} for {username} (total fund: ${new_total:.2f})", amount, "Approved")
+            add_investment_log(username, "FundApproved", "", amount,
+                               f"Investment fund of ${amount:.2f} approved by {session['user']} (total fund: ${new_total:.2f})")
             flash(f"Approved ${amount:.2f} investment fund for {username}. Their fund total is now ${new_total:.2f}.", "success")
         cache.invalidate("pending_fund_requests")
     except Exception as e:
@@ -5063,8 +5116,9 @@ def retroactive_fund_correction():
                     # Only apply if balance would remain >= 0
                     if new_balance >= 0:
                         update_balance(username, new_balance)
-                        add_transaction(username, "SYSTEM", total_invested,
-                                      f"Retroactive correction: deducted ${total_invested:.2f} for investments made from previously approved investment fund")
+                        add_investment_log(username, "RetroactiveCorrection", "",
+                                           round(total_invested, 2),
+                                           f"Retroactive correction: deducted ${total_invested:.2f} for investments made from previously approved investment fund")
                         corrections_applied += 1
                         total_corrected += total_invested
 
