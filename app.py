@@ -155,21 +155,67 @@ def get_transfer_lock(username: str):
         return _transfer_locks[username]
 
 def retry_with_backoff(func, max_retries=3, initial_delay=1):
-    """Exponential backoff retry for 429 errors"""
+    """Exponential backoff retry for transient errors.
+
+    For quota errors (429), fails immediately without retry since quota is
+    per-minute and short retries just waste more quota slots.
+    """
     for attempt in range(max_retries):
         try:
             return func()
         except gspread.exceptions.APIError as e:
             if e.response.status_code == 429:  # Quota exceeded
+                # Don't retry quota errors - they won't resolve in 1-2 seconds
+                # and retrying just wastes more quota. Fail fast so cache remains valid.
+                print(f"API quota exceeded. Using cached data if available.")
+                raise Exception("Google Sheets API quota exceeded. Please try again later.")
+            else:
+                # Retry other API errors (500, 503, network issues, etc.)
                 if attempt < max_retries - 1:
-                    delay = initial_delay * (2 ** attempt)  # Exponential backoff
-                    print(f"API quota exceeded. Retrying in {delay}s...")
+                    delay = initial_delay * (2 ** attempt)
+                    print(f"API error {e.response.status_code}. Retrying in {delay}s...")
                     time.sleep(delay)
                 else:
-                    raise Exception("Google Sheets API quota exceeded. Please try again later.")
-            else:
-                raise
+                    raise
         except Exception as e:
+            raise
+
+# ---------- HELPER: SAFE WORKSHEET GET/CREATE ----------
+def get_or_create_worksheet(spreadsheet, sheet_name, rows=1000, cols=10):
+    """
+    Safely get or create a worksheet, handling the case where the sheet
+    already exists to prevent crashes.
+
+    Args:
+        spreadsheet: The gspread spreadsheet object
+        sheet_name: Name of the worksheet
+        rows: Number of rows (default 1000)
+        cols: Number of columns (default 10)
+
+    Returns:
+        The worksheet object
+    """
+    try:
+        # Try to get the existing worksheet
+        return spreadsheet.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        # Sheet doesn't exist, try to create it
+        try:
+            return spreadsheet.add_worksheet(sheet_name, rows=rows, cols=cols)
+        except Exception as e:
+            # If creation fails because sheet already exists (race condition),
+            # try to get it one more time
+            if "already exists" in str(e).lower():
+                return spreadsheet.worksheet(sheet_name)
+            raise
+    except Exception:
+        # For any other error on initial get, still try to create
+        try:
+            return spreadsheet.add_worksheet(sheet_name, rows=rows, cols=cols)
+        except Exception as e:
+            # If creation fails because sheet already exists, get it
+            if "already exists" in str(e).lower():
+                return spreadsheet.worksheet(sheet_name)
             raise
 
 # ---------- GOOGLE SHEETS SETUP ----------
@@ -183,87 +229,87 @@ transactions_sheet = sheet.worksheet("Transactions")
 fed_sheet = sheet.worksheet("Reserve")
 loans_sheet = sheet.worksheet("Loans")
 
+# Separate sheet for Community Prize (Lottery)
+community_prize_sheet_doc = client.open("Bank-Info-CommunityPrize")
+
+# Separate sheet for Stock Floor (Investments & Stock Trading)
+stock_floor_sheet_doc = client.open("Bank-Info-StockFloor")
+
 # Pre-load the Logs worksheet once at startup so log_action never pays the
 # cost of a runtime sheet.worksheet() API lookup on every teacher action.
-try:
-    logs_sheet = sheet.worksheet("Logs")
-except Exception:
-    logs_sheet = sheet.add_worksheet("Logs", rows=1000, cols=6)
-    logs_sheet.update([["Date", "User", "Action", "Target", "Amount", "Result"]], 'A1:F1')
+logs_sheet = get_or_create_worksheet(sheet, "Logs", rows=1000, cols=6)
+# Header initialization disabled to save quota - run once manually if needed
+# if not logs_sheet.row_values(1):
+#     logs_sheet.update([["Date", "User", "Action", "Target", "Amount", "Result"]], 'A1:F1')
 
 # Pre-load the CashBurns worksheet once at startup for the same reason.
-try:
-    cashburns_sheet = sheet.worksheet("CashBurns")
-except Exception:
-    cashburns_sheet = sheet.add_worksheet("CashBurns", rows=1000, cols=5)
+cashburns_sheet = get_or_create_worksheet(sheet, "CashBurns", rows=1000, cols=5)
 
 # Pre-load the Ads worksheet for the ad management system.
-try:
-    ads_sheet = sheet.worksheet("Ads")
-except Exception:
-    ads_sheet = sheet.add_worksheet("Ads", rows=1000, cols=9)
-    ads_sheet.update([["ID", "Title", "ImageURL", "LinkURL", "Pages", "Schedule", "Priority", "Interval", "Active"]], 'A1:I1')
+ads_sheet = get_or_create_worksheet(sheet, "Ads", rows=1000, cols=9)
+# Header initialization disabled to save quota - run once manually if needed
+# if not ads_sheet.row_values(1):
+#     ads_sheet.update([["ID", "Title", "ImageURL", "LinkURL", "Pages", "Schedule", "Priority", "Interval", "Active"]], 'A1:I1')
 
-# Pre-load the Lottery tickets sheet.
-try:
-    lottery_sheet = sheet.worksheet("Lottery")
-except Exception:
-    lottery_sheet = sheet.add_worksheet("Lottery", rows=5000, cols=6)
-    lottery_sheet.update([["TicketID", "Username", "Number1", "VexBall", "PurchaseDate", "Drawing"]], 'A1:F1')
+# Pre-load the Community Prize tickets sheet (formerly Lottery).
+lottery_sheet = get_or_create_worksheet(community_prize_sheet_doc, "CommunityPrize", rows=5000, cols=6)
+# Header initialization disabled to save quota - run once manually if needed
+# if not lottery_sheet.row_values(1):
+#     lottery_sheet.update([["TicketID", "Username", "Number1", "VexBall", "PurchaseDate", "Drawing"]], 'A1:F1')
 
-# Pre-load the LotteryLogs sheet (purchase records & win/loss events).
-try:
-    lottery_logs_sheet = sheet.worksheet("LotteryLogs")
-except Exception:
-    lottery_logs_sheet = sheet.add_worksheet("LotteryLogs", rows=5000, cols=5)
-    lottery_logs_sheet.update([["Username", "Type", "Amount", "Date", "Description"]], 'A1:E1')
+# Pre-load the PrizeLogs sheet (purchase records & win/loss events, formerly LotteryLogs).
+lottery_logs_sheet = get_or_create_worksheet(community_prize_sheet_doc, "PrizeLogs", rows=5000, cols=5)
+# Header initialization disabled to save quota - run once manually if needed
+# if not lottery_logs_sheet.row_values(1):
+#     lottery_logs_sheet.update([["Username", "Type", "Amount", "Date", "Description"]], 'A1:E1')
 
-# Load the Investments sheet (teacher-maintained company net-worth table).
+# Pre-load the PastWinners sheet from Community Prize sheet (permanent winner record, newest first).
+past_winners_sheet = get_or_create_worksheet(community_prize_sheet_doc, "PastWinners", rows=5000, cols=5)
+# Header initialization disabled to save quota - run once manually if needed
+# row1 = past_winners_sheet.row_values(1)
+# if not row1 or row1[0] != "Username":
+#     past_winners_sheet.insert_row(["Username", "PrizeType", "Amount", "DrawName", "Date"], index=1)
+
+# Load the Investments sheet from Stock Floor (teacher-maintained company net-worth table).
 try:
-    investments_sheet = sheet.worksheet("Investments")
+    investments_sheet = stock_floor_sheet_doc.worksheet("Investments")
 except Exception:
     investments_sheet = None  # page will show a friendly error if missing
 
-# Pre-load the StockHoldings sheet (per-user investment tracking).
+# Pre-load the StockHoldings sheet from Stock Floor (per-user investment tracking).
 # Schema: Username | Company | InvestedAmount | NetWorthAtInvestment
-try:
-    stock_holdings_sheet = sheet.worksheet("StockHoldings")
-    # Migrate old schema (Ticker/Shares/AvgCostBasis) → new schema if needed
-    _sh_header = stock_holdings_sheet.row_values(1)
-    if _sh_header and _sh_header[1:3] == ["Ticker", "Shares"]:
-        stock_holdings_sheet.clear()
-        stock_holdings_sheet.update([["Username", "Company", "InvestedAmount", "NetWorthAtInvestment"]], 'A1:D1')
-except Exception:
-    stock_holdings_sheet = sheet.add_worksheet("StockHoldings", rows=2000, cols=4)
-    stock_holdings_sheet.update([["Username", "Company", "InvestedAmount", "NetWorthAtInvestment"]], 'A1:D1')
+stock_holdings_sheet = get_or_create_worksheet(stock_floor_sheet_doc, "StockHoldings", rows=2000, cols=4)
+# Schema migration disabled to save quota - headers should already exist in production
+# _sh_header = stock_holdings_sheet.row_values(1)
+# if not _sh_header or (_sh_header and _sh_header[1:3] == ["Ticker", "Shares"]):
+#     stock_holdings_sheet.clear()
+#     stock_holdings_sheet.update([["Username", "Company", "InvestedAmount", "NetWorthAtInvestment"]], 'A1:D1')
+# elif not _sh_header:
+#     stock_holdings_sheet.update([["Username", "Company", "InvestedAmount", "NetWorthAtInvestment"]], 'A1:D1')
 
-# Pre-load FundRequests sheet (pending investment fund requests from students).
-try:
-    fund_requests_sheet = sheet.worksheet("FundRequests")
-except Exception:
-    fund_requests_sheet = sheet.add_worksheet("FundRequests", rows=2000, cols=4)
-    fund_requests_sheet.update([["Username", "Amount", "Status", "RequestedAt"]], 'A1:D1')
+# Pre-load FundRequests sheet from Stock Floor (pending investment fund requests from students).
+fund_requests_sheet = get_or_create_worksheet(stock_floor_sheet_doc, "FundRequests", rows=2000, cols=4)
+# Header initialization disabled to save quota - run once manually if needed
+# if not fund_requests_sheet.row_values(1):
+#     fund_requests_sheet.update([["Username", "Amount", "Status", "RequestedAt"]], 'A1:D1')
 
-# Pre-load InvestFunds sheet (approved investment fund balances per user).
-try:
-    invest_funds_sheet = sheet.worksheet("InvestFunds")
-except Exception:
-    invest_funds_sheet = sheet.add_worksheet("InvestFunds", rows=1000, cols=2)
-    invest_funds_sheet.update([["Username", "Balance"]], 'A1:B1')
+# Pre-load InvestFunds sheet from Stock Floor (approved investment fund balances per user).
+invest_funds_sheet = get_or_create_worksheet(stock_floor_sheet_doc, "InvestFunds", rows=1000, cols=2)
+# Header initialization disabled to save quota - run once manually if needed
+# if not invest_funds_sheet.row_values(1):
+#     invest_funds_sheet.update([["Username", "Balance"]], 'A1:B1')
 
 # Pre-load FeeLogs sheet (one row per 1% transaction fee collected by the bank).
-try:
-    fee_logs_sheet = sheet.worksheet("FeeLogs")
-except Exception:
-    fee_logs_sheet = sheet.add_worksheet("FeeLogs", rows=5000, cols=6)
-    fee_logs_sheet.update([["Date", "Sender", "Receiver", "TransactionAmount", "FeeAmount", "Description"]], 'A1:F1')
+fee_logs_sheet = get_or_create_worksheet(sheet, "FeeLogs", rows=5000, cols=6)
+# Header initialization disabled to save quota - run once manually if needed
+# if not fee_logs_sheet.row_values(1):
+#     fee_logs_sheet.update([["Date", "Sender", "Receiver", "TransactionAmount", "FeeAmount", "Description"]], 'A1:F1')
 
-# Pre-load InvestmentLogs sheet (investment buys, sells, and fund events).
-try:
-    investment_logs_sheet = sheet.worksheet("InvestmentLogs")
-except Exception:
-    investment_logs_sheet = sheet.add_worksheet("InvestmentLogs", rows=2000, cols=6)
-    investment_logs_sheet.update([["Date", "Username", "Action", "Company", "Amount", "Details"]], 'A1:F1')
+# Pre-load InvestmentLogs sheet from Stock Floor (investment buys, sells, and fund events).
+investment_logs_sheet = get_or_create_worksheet(stock_floor_sheet_doc, "InvestmentLogs", rows=2000, cols=6)
+# Header initialization disabled to save quota - run once manually if needed
+# if not investment_logs_sheet.row_values(1):
+#     investment_logs_sheet.update([["Date", "Username", "Action", "Company", "Amount", "Details"]], 'A1:F1')
 
 # ---------- WRITE BUFFERS (deferred append_row → batched append_rows) ----------
 # Logs and FeeLogs are high-frequency audit writes with no user-facing urgency.
@@ -275,16 +321,14 @@ _fee_log_buffer = WriteBuffer(lambda: fee_logs_sheet,
 # Registry — background worker flushes all buffers on every FLUSH_INTERVAL tick.
 _ALL_WRITE_BUFFERS = [_log_buffer, _fee_log_buffer]
 
-# Ensure Transactions sheet has a proper header row
-trans_required_headers = ["Date", "Sender", "Receiver", "Amount", "Type", "Comment"]
-trans_header = transactions_sheet.row_values(1)
-if not trans_header or trans_header[0] != "Date":
-    if not trans_header:
-        # Sheet is empty — write headers to row 1
-        transactions_sheet.update([trans_required_headers], 'A1:F1')
-    else:
-        # Sheet has data rows but no header — insert header row at the top
-        transactions_sheet.insert_row(trans_required_headers, 1)
+# Transactions header check disabled to save quota - headers should already exist
+# trans_required_headers = ["Date", "Sender", "Receiver", "Amount", "Type", "Comment"]
+# trans_header = transactions_sheet.row_values(1)
+# if not trans_header or trans_header[0] != "Date":
+#     if not trans_header:
+#         transactions_sheet.update([trans_required_headers], 'A1:F1')
+#     else:
+#         transactions_sheet.insert_row(trans_required_headers, 1)
 
 # ---------- STATIC COLUMN-INDEX MAPS (computed once, no extra API calls) ----------
 # These map column name → 1-based column number and never change during a session.
@@ -294,21 +338,17 @@ _USERS_COLS: dict = {name: idx + 1 for idx, name in enumerate(_users_header)}
 _loans_header = loans_sheet.row_values(1) if loans_sheet else []
 _LOANS_HEADERS: list = _loans_header  # used as expected_headers in get_all_records
 
-# Ensure sheet has required columns (but never delete existing headers!)
-header = _users_header
-
-required_headers = ["Username", "Password", "Balance", "Frozen", "Role", "Email", "AccountType", "CardNumber", "PIN", "WeeklyPayment"]
-
-# Only add missing columns, never delete or reset headers
-if len(header) < len(required_headers):
-    # Add missing columns at the end
-    for i in range(len(header), len(required_headers)):
-        users_sheet.update_cell(1, i + 1, required_headers[i])
-elif len(header) > 0:
-    # Fix any incorrect column names in existing positions (without deleting row)
-    for i, req_header in enumerate(required_headers):
-        if i < len(header) and header[i] != req_header:
-            users_sheet.update_cell(1, i + 1, req_header)
+# Users sheet header validation disabled to save API quota on startup
+# Headers should already be correctly set up in production - run setup script if needed
+# header = _users_header
+# required_headers = ["Username", "Password", "Balance", "Frozen", "Role", "Email", "AccountType", "CardNumber", "PIN", "WeeklyPayment"]
+# if len(header) < len(required_headers):
+#     for i in range(len(header), len(required_headers)):
+#         users_sheet.update_cell(1, i + 1, required_headers[i])
+# elif len(header) > 0:
+#     for i, req_header in enumerate(required_headers):
+#         if i < len(header) and header[i] != req_header:
+#             users_sheet.update_cell(1, i + 1, req_header)
     
 
 
@@ -487,7 +527,7 @@ def log_fee(sender, receiver, transaction_amount, fee_amount, description=""):
 
 
 def add_lottery_log(username, log_type, amount, description=""):
-    """Write a lottery event to the LotteryLogs sheet."""
+    """Write a lottery event to the PrizeLogs sheet."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not description:
         description = log_type
@@ -500,13 +540,17 @@ def add_lottery_log(username, log_type, amount, description=""):
 
 
 def get_all_lottery_logs_raw():
-    """Return all rows from the LotteryLogs sheet, shared across callers."""
+    """Return all rows from the PrizeLogs sheet, shared across callers."""
     cache_key = "all_lottery_logs_raw"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
     def fetch():
-        return lottery_logs_sheet.get_all_records()
+        all_vals = lottery_logs_sheet.get_all_values()
+        if not all_vals:
+            return []
+        header = all_vals[0]
+        return [dict(zip(header, row)) for row in all_vals[1:]]
     rows = retry_with_backoff(fetch)
     cache.set(cache_key, rows, ttl=SheetCache.MEDIUM_TTL)
     return rows
@@ -619,8 +663,8 @@ def get_user_transactions(username):
     rows = get_all_transactions_raw()
     formatted = []
 
-    # Pull from Transactions sheet (exclude lottery-related entries — those live in LotteryLogs)
-    _lottery_accounts = {"LotteryPrize", "LotteryReserve", "LotteryEmployment"}
+    # Pull from Transactions sheet (exclude lottery-related entries — those live in PrizeLogs)
+    _lottery_accounts = {"LotteryPrize", "LotteryReserve", "LotteryEmployment", "LotteryBuffer"}
     for t in rows:
         sender   = t.get("Sender", "")
         receiver = t.get("Receiver", "")
@@ -919,30 +963,23 @@ def ensure_fed_sheet():
 
 def ensure_logs_sheet():
     """Ensure Logs sheet has proper headers"""
-    try:
-        logs_sheet = sheet.worksheet("Logs")
-    except:
-        # Create Logs sheet if it doesn't exist
-        logs_sheet = sheet.add_worksheet("Logs", rows=1000, cols=5)
-    
+    logs_sheet = get_or_create_worksheet(sheet, "Logs", rows=1000, cols=5)
+
     required_headers = ["User", "Action", "Amount", "Acceptance", "Timestamp"]
     existing_headers = logs_sheet.row_values(1)
-    
+
     # If header row is empty, write full header
     if not existing_headers or existing_headers == ['', '', '', '', '']:
         logs_sheet.update([required_headers], 'A1:E1')
         return
-    
+
     # Fix headers if they exist but are wrong
     if existing_headers[:5] != required_headers:
         logs_sheet.update([required_headers], 'A1:E1')
 
 def ensure_deletions_sheet():
     """Ensure Deletions sheet exists with proper headers"""
-    try:
-        deletions_sheet = sheet.worksheet("Deletions")
-    except:
-        deletions_sheet = sheet.add_worksheet("Deletions", rows=1000, cols=5)
+    deletions_sheet = get_or_create_worksheet(sheet, "Deletions", rows=1000, cols=5)
 
     required_headers = ["Username", "Requester", "Reason", "Date", "Status"]
     existing_headers = deletions_sheet.row_values(1)
@@ -950,9 +987,12 @@ def ensure_deletions_sheet():
     if not existing_headers or existing_headers == ['', '', '', '', '']:
         deletions_sheet.update([required_headers], 'A1:E1')
 
-ensure_fed_sheet()
-ensure_logs_sheet()
-ensure_deletions_sheet()
+# Startup initialization disabled to save API quota
+# These functions check/create headers on every restart - unnecessary in production
+# Run manually once if setting up new sheets
+# ensure_fed_sheet()
+# ensure_logs_sheet()
+# ensure_deletions_sheet()
 
 def get_week_start_balance() -> float:
     """Return the stored week-start bank balance snapshot (0 if never set)."""
@@ -2070,9 +2110,13 @@ def get_investments_data():
     return result
 
 
-def get_user_investment_holdings(username):
-    """Return a list of {Company, InvestedAmount, NetWorthAtInvestment} for a user."""
-    cache_key = f"holdings_{username}"
+def get_all_stock_holdings_raw():
+    """Return all rows from the StockHoldings sheet, shared across callers.
+
+    This fetches the entire sheet once and caches it, preventing repeated API calls
+    when multiple users visit the /stocks page.
+    """
+    cache_key = "all_stock_holdings_raw"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -2080,7 +2124,20 @@ def get_user_investment_holdings(username):
     def fetch():
         return stock_holdings_sheet.get_all_records()
 
-    all_rows = retry_with_backoff(fetch)
+    rows = retry_with_backoff(fetch)
+    cache.set(cache_key, rows, ttl=SheetCache.MEDIUM_TTL)
+    return rows
+
+
+def get_user_investment_holdings(username):
+    """Return a list of {Company, InvestedAmount, NetWorthAtInvestment} for a user."""
+    cache_key = f"holdings_{username}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Fetch from shared cache instead of hitting API per-user
+    all_rows = get_all_stock_holdings_raw()
     holdings = [r for r in all_rows if r.get("Username") == username]
     for h in holdings:
         try:
@@ -2092,8 +2149,23 @@ def get_user_investment_holdings(username):
         except (ValueError, TypeError):
             h["InvestedAmount"] = 0.0
             h["NetWorthAtInvestment"] = 0.0
-    cache.set(cache_key, holdings)
+    cache.set(cache_key, holdings, ttl=SheetCache.SHORT_TTL)
     return holdings
+
+
+def get_all_invest_funds_raw():
+    """Return all rows from the InvestFunds sheet, shared across callers."""
+    cache_key = "all_invest_funds_raw"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    def fetch():
+        return invest_funds_sheet.get_all_records()
+
+    rows = retry_with_backoff(fetch)
+    cache.set(cache_key, rows, ttl=SheetCache.MEDIUM_TTL)
+    return rows
 
 
 def get_investment_fund_balance(username):
@@ -2103,17 +2175,16 @@ def get_investment_fund_balance(username):
     if cached is not None:
         return cached
     try:
-        def fetch():
-            return invest_funds_sheet.get_all_records()
-        rows = retry_with_backoff(fetch)
+        # Fetch from shared cache instead of hitting API per-user
+        rows = get_all_invest_funds_raw()
         for row in rows:
             if row.get("Username") == username:
                 bal = float(row.get("Balance", 0) or 0)
-                cache.set(cache_key, bal)
+                cache.set(cache_key, bal, ttl=SheetCache.SHORT_TTL)
                 return bal
     except Exception:
         pass
-    cache.set(cache_key, 0.0)
+    cache.set(cache_key, 0.0, ttl=SheetCache.SHORT_TTL)
     return 0.0
 
 
@@ -2986,13 +3057,10 @@ def request_teacher_account():
 
     # Add to teacher requests sheet for banker approval
     def add_request():
-        try:
-            teacher_requests_sheet = sheet.worksheet("TeacherRequests")
-        except:
-            # Create sheet if it doesn't exist
-            teacher_requests_sheet = sheet.add_worksheet("TeacherRequests", rows=100, cols=6)
+        teacher_requests_sheet = get_or_create_worksheet(sheet, "TeacherRequests", rows=100, cols=6)
+        if not teacher_requests_sheet.row_values(1):
             teacher_requests_sheet.append_row(["Username", "Password", "Email", "Status", "ApprovedBy", "Requested Date"])
-        
+
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         teacher_requests_sheet.append_row([username, password, email, "Pending", "", now])
     
@@ -3024,13 +3092,10 @@ def request_role_change():
     
     # Add to role change requests sheet
     def add_request():
-        try:
-            role_requests_sheet = sheet.worksheet("RoleChangeRequests")
-        except:
-            # Create sheet if it doesn't exist
-            role_requests_sheet = sheet.add_worksheet("RoleChangeRequests", rows=100, cols=6)
+        role_requests_sheet = get_or_create_worksheet(sheet, "RoleChangeRequests", rows=100, cols=6)
+        if not role_requests_sheet.row_values(1):
             role_requests_sheet.append_row(["Username", "Current Role", "Requested Role", "Reason", "Request Date", "Status"])
-        
+
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         role_requests_sheet.append_row([username, current_role, requested_role, reason, now, "Pending"])
     
@@ -4443,6 +4508,7 @@ def ensure_lottery_pools():
         ("LotteryPrize",      "System", "LotteryFund"),
         ("LotteryReserve",    "System", "LotteryFund"),
         ("LotteryEmployment", "System", "LotteryFund"),
+        ("LotteryBuffer",     "System", "LotteryFund"),
     ]
     users = get_all_users()
     existing = {u["Username"] for u in users}
@@ -4460,14 +4526,15 @@ def ensure_lottery_pools():
 
 
 def get_lottery_pool_balances():
-    """Return {prize, reserve, employment} pool balances."""
+    """Return {prize, reserve, employment, buffer} pool balances."""
     users = get_all_users()
     mapping = {
         "LotteryPrize":      "prize",
         "LotteryReserve":    "reserve",
         "LotteryEmployment": "employment",
+        "LotteryBuffer":     "buffer",
     }
-    result = {"prize": 0.0, "reserve": 0.0, "employment": 0.0}
+    result = {"prize": 0.0, "reserve": 0.0, "employment": 0.0, "buffer": 0.0}
     for u in users:
         key = mapping.get(u["Username"])
         if key:
@@ -4485,7 +4552,11 @@ def get_user_lottery_tickets(username):
     if cached is not None:
         return cached
     def fetch():
-        return lottery_sheet.get_all_records()
+        all_vals = lottery_sheet.get_all_values()
+        if not all_vals:
+            return []
+        header = all_vals[0]
+        return [dict(zip(header, row)) for row in all_vals[1:]]
     rows = retry_with_backoff(fetch)
     tickets = [r for r in rows if r.get("Username") == username]
     cache.set(cache_key, tickets)
@@ -4501,6 +4572,49 @@ def invalidate_lottery_caches(username=None):
             f"user_balance_{username}",
             f"user_data_{username}",
         )
+
+
+def get_past_lottery_results():
+    """Return all-time winner data from the PastWinners sheet for the banker view."""
+    cache_key = "past_winners"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached if cached else None
+
+    def fetch():
+        all_vals = past_winners_sheet.get_all_values()
+        if not all_vals or len(all_vals) < 2:
+            return []
+        header = all_vals[0]
+        return [dict(zip(header, row)) for row in all_vals[1:]]
+
+    records = retry_with_backoff(fetch)
+    if not records:
+        cache.set(cache_key, [], ttl=SheetCache.MEDIUM_TTL)
+        return None
+
+    rows = []
+    for r in records:
+        try:
+            amount = float(r.get("Amount", 0))
+        except (ValueError, TypeError):
+            amount = 0.0
+        rows.append({
+            "username": r.get("Username", ""),
+            "prize_type": r.get("PrizeType", ""),
+            "draw_name": r.get("DrawName", "—"),
+            "amount": amount,
+            "date": r.get("Date", ""),
+        })
+
+    result = {
+        "draw_name": "Winner History",
+        "draw_date": rows[0]["date"] if rows else "",
+        "has_winners": True,
+        "rows": rows,
+    }
+    cache.set(cache_key, result, ttl=SheetCache.MEDIUM_TTL)
+    return result
 
 
 def get_lottery_winning():
@@ -4585,6 +4699,7 @@ def lottery():
     user_balance = get_user_balance(username)
     winning      = get_lottery_winning()
     is_banker    = session.get("role") in ("Banker", "Teacher")
+    past_lottery_results = get_past_lottery_results() if is_banker else None
     return render_template(
         "lottery.html",
         pools=pools,
@@ -4592,6 +4707,7 @@ def lottery():
         user_balance=user_balance,
         winning=winning,
         is_banker=is_banker,
+        past_lottery_results=past_lottery_results,
     )
 
 
@@ -4673,13 +4789,14 @@ def lottery_buy():
     new_user_bal = round(user_balance - total_cost, 2)
     update_balance(username, new_user_bal)
 
-    # ── Distribute to pools (70 / 20 / 10) ───────────────────
+    # ── Distribute to pools ───────────────────────────────────
+    # Prize cut goes to LotteryBuffer; it flushes into LotteryPrize when a drawing is run.
     prize_cut      = round(total_cost * 0.50, 2)
     employment_cut = round(total_cost * 0.20, 2)
     reserve_cut    = round(total_cost - prize_cut - employment_cut, 2)  # absorbs rounding
 
     pools = get_lottery_pool_balances()
-    update_balance("LotteryPrize",      round(pools["prize"]      + prize_cut,      2))
+    update_balance("LotteryBuffer",     round(pools["buffer"]     + prize_cut,      2))
     update_balance("LotteryReserve",    round(pools["reserve"]    + reserve_cut,    2))
     update_balance("LotteryEmployment", round(pools["employment"] + employment_cut, 2))
 
@@ -4703,7 +4820,7 @@ def lottery_buy():
 
     retry_with_backoff(_append)
 
-    # ── Log to LotteryLogs (not general transactions) ─────────
+    # ── Log to PrizeLogs (not general transactions) ─────────
     add_lottery_log(
         username, "Purchase", total_cost,
         f"Bought {quantity} ticket{'s' if quantity != 1 else ''} — ${total_cost:.2f} spent",
@@ -4763,10 +4880,18 @@ def lottery_draw():
         winners_vex     = []
 
         def _get_tickets():
-            return lottery_sheet.get_all_records()
+            all_vals = lottery_sheet.get_all_values()
+            if not all_vals:
+                return []
+            header = all_vals[0]
+            return [dict(zip(header, row)) for row in all_vals[1:]]
 
         tickets = retry_with_backoff(_get_tickets)
         pools   = get_lottery_pool_balances()
+
+        # ── NOTE: Buffer stays in buffer during this drawing ──────
+        # Winners are paid from the current prize pool only.
+        # After the drawing, the buffer will be moved to prize for the NEXT drawing.
 
         for t in tickets:
             if t.get("Drawing") != "Active":
@@ -4791,37 +4916,95 @@ def lottery_draw():
             elif match_vex:
                 winners_vex.append(t["Username"])
 
-        # ── Award jackpot (split if multiple winners) ────────────
-        jackpot_amount = pools["prize"]
-        if winners_jackpot:
-            unique_jackpot = list(set(winners_jackpot))
+        # ── Batch-pay all winners (1 read + 1 write + 1 log append) ─
+        # Read every user row once to get row numbers and current balances.
+        def _read_user_rows():
+            return users_sheet.get_all_values()
+        user_rows = retry_with_backoff(_read_user_rows)
+        user_row_map = {}  # username → (1-based row index, current balance)
+        if user_rows:
+            for idx, row in enumerate(user_rows[1:], start=2):
+                if row:
+                    try:
+                        user_row_map[str(row[0])] = (
+                            idx, float(row[2]) if len(row) > 2 and row[2] else 0.0
+                        )
+                    except (ValueError, TypeError):
+                        user_row_map[str(row[0])] = (idx, 0.0)
+
+        jackpot_amount  = pools["prize"]
+        reserve_amount  = pools["reserve"]
+
+        # Compute new balances in memory — no API calls
+        balance_updates = {}  # username → final new balance
+
+        def _cur(uname):
+            return balance_updates.get(uname, user_row_map.get(uname, (0, 0.0))[1])
+
+        # Jackpot winners — drains entire prize pool
+        unique_jackpot = list(set(winners_jackpot))
+        if unique_jackpot:
             share = round(jackpot_amount / len(winners_jackpot), 2)
             for uname in unique_jackpot:
                 count = winners_jackpot.count(uname)
                 award = round(share * count, 2)
-                bal = get_user_balance(uname)
-                update_balance(uname, round(bal + award, 2))
-                add_lottery_log(uname, "Jackpot Win", award,
-                                f"Jackpot winner! Drawing: {draw_name or 'Draw'}")
-            update_balance("LotteryPrize", 0.0)
+                balance_updates[uname] = round(_cur(uname) + award, 2)
+            balance_updates["LotteryPrize"] = 0.0
 
-        # ── Award $50 for 4-number match (no Vex) ───────────────
+        # 4-number match winners ($20 each) — paid from reserve
+        reserve_remaining = reserve_amount
         for uname in winners_match:
-            bal = get_user_balance(uname)
-            update_balance(uname, round(bal + 50.0, 2))
-            add_lottery_log(uname, "4-Number Win", 50.0,
-                            f"Matched all 4 numbers! Drawing: {draw_name or 'Draw'}")
-            pools = get_lottery_pool_balances()
-            update_balance("LotteryPrize", max(0.0, round(pools["prize"] - 50.0, 2)))
+            balance_updates[uname] = round(_cur(uname) + 20.0, 2)
+            reserve_remaining = max(0.0, reserve_remaining - 20.0)
 
-        # ── Award $2 refund for Vex Ball only ────────────────────
+        # Vex ball winners ($2 each) — paid from reserve
         for uname in winners_vex:
-            bal = get_user_balance(uname)
-            update_balance(uname, round(bal + 2.0, 2))
-            add_lottery_log(uname, "Vex Ball Win", 2.0,
-                            f"Vex Ball match refund. Drawing: {draw_name or 'Draw'}")
-            pools = get_lottery_pool_balances()
-            update_balance("LotteryPrize", max(0.0, round(pools["prize"] - 2.0, 2)))
+            balance_updates[uname] = round(_cur(uname) + 2.0, 2)
+            reserve_remaining = max(0.0, reserve_remaining - 2.0)
+
+        # Update reserve pool if any non-jackpot payouts were made
+        if winners_match or winners_vex:
+            balance_updates["LotteryReserve"] = round(reserve_remaining, 2)
+
+        # One batch write for all balance changes
+        balance_batch = []
+        for uname, new_bal in balance_updates.items():
+            if uname in user_row_map:
+                row_idx = user_row_map[uname][0]
+                balance_batch.append({"range": f"C{row_idx}", "values": [[new_bal]]})
+        if balance_batch:
+            def _write_balances(b=balance_batch):
+                users_sheet.batch_update(b)
+            retry_with_backoff(_write_balances)
+
+        # One append_rows for all lottery log entries + insert into PastWinners
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        draw_label = draw_name or "Draw"
+        log_rows = []
+        pw_rows = []  # [Username, PrizeType, Amount, DrawName, Date]
+        if unique_jackpot:
+            share = round(jackpot_amount / len(winners_jackpot), 2)
+            for uname in unique_jackpot:
+                award = round(share * winners_jackpot.count(uname), 2)
+                log_rows.append([uname, "Jackpot Win", award, now_str,
+                                  f"Jackpot winner! Drawing: {draw_label}"])
+                pw_rows.append([uname, "Jackpot Win", award, draw_label, now_str])
+        for uname in winners_match:
+            log_rows.append([uname, "4-Number Win", 20.0, now_str,
+                              f"Matched all 4 numbers! Drawing: {draw_label}"])
+            pw_rows.append([uname, "4-Number Win", 20.0, draw_label, now_str])
+        for uname in winners_vex:
+            log_rows.append([uname, "Vex Ball Win", 2.0, now_str,
+                              f"Vex Ball match refund. Drawing: {draw_label}"])
+            pw_rows.append([uname, "Vex Ball Win", 2.0, draw_label, now_str])
+        if log_rows:
+            def _write_logs(rows=log_rows):
+                lottery_logs_sheet.append_rows(rows, value_input_option="RAW")
+            retry_with_backoff(_write_logs)
+        if pw_rows:
+            def _write_past_winners(rows=pw_rows):
+                past_winners_sheet.insert_rows(rows, row=2, value_input_option="RAW")
+            retry_with_backoff(_write_past_winners)
 
         # ── Mark all Active tickets as drawn ─────────────────────
         label = draw_name or datetime.now().strftime("%Y-%m-%d")
@@ -4847,14 +5030,68 @@ def lottery_draw():
 
         retry_with_backoff(_mark_done)
 
-        # Bust all caches
-        cache.invalidate("all_users")
-        for u in get_all_users():
+        # ── Delete used tickets after drawing completes ───────────
+        # Instead of deleting rows one-by-one (N API calls), rewrite the sheet with only Active tickets (2 API calls)
+        def _delete_used_tickets():
+            all_vals = lottery_sheet.get_all_values()
+            if not all_vals or len(all_vals) <= 1:
+                return
+            header = all_vals[0]
+            if "Drawing" not in header:
+                return
+            drawing_col = header.index("Drawing")
+
+            # Filter to keep only Active tickets
+            active_rows = [header]  # Keep header
+            for row in all_vals[1:]:
+                if len(row) > drawing_col and row[drawing_col] == "Active":
+                    active_rows.append(row)
+
+            # Clear and rewrite sheet with only active tickets (much faster than deleting rows one by one)
+            lottery_sheet.clear()
+            if len(active_rows) > 1:  # If we have active tickets beyond just the header
+                lottery_sheet.append_rows(active_rows, value_input_option="RAW")
+            else:  # Only header, so just write header
+                lottery_sheet.append_row(header, value_input_option="RAW")
+
+        retry_with_backoff(_delete_used_tickets)
+
+        # ── Move buffer to prize pool for the NEXT drawing ────────
+        if pools["buffer"] > 0:
+            new_prize = round(pools["prize"] + pools["buffer"], 2)
+            def _flush_rows():
+                return users_sheet.get_all_values()
+            flush_all = retry_with_backoff(_flush_rows)
+            flush_map = {}
+            if flush_all:
+                for idx, row in enumerate(flush_all[1:], start=2):
+                    if row:
+                        flush_map[str(row[0])] = idx
+            flush_batch = [
+                {"range": f"C{flush_map[u]}", "values": [[v]]}
+                for u, v in [("LotteryPrize", new_prize), ("LotteryBuffer", 0.0)]
+                if u in flush_map
+            ]
+            if flush_batch:
+                def _flush(b=flush_batch):
+                    users_sheet.batch_update(b)
+                retry_with_backoff(_flush)
+            # Update balance_updates for cache invalidation
+            balance_updates["LotteryPrize"] = new_prize
+            balance_updates["LotteryBuffer"] = 0.0
+
+        # Invalidate only the caches that actually changed
+        affected = set(balance_updates.keys())  # winners + pool accounts
+        cache.invalidate("all_users", "all_lottery_logs_raw", "past_winners")
+        for uname in affected:
             cache.invalidate(
-                f"lottery_tickets_{u['Username']}",
-                f"user_balance_{u['Username']}",
-                f"user_data_{u['Username']}",
+                f"user_balance_{uname}",
+                f"user_data_{uname}",
+                f"lottery_logs_{uname}",
             )
+        # All active tickets just became drawn — bust every user's ticket cache
+        for uname in {t["Username"] for t in tickets if t.get("Drawing") == "Active"}:
+            cache.invalidate(f"lottery_tickets_{uname}")
 
         flash(
             f"✅ Drawing complete! "
@@ -4884,7 +5121,8 @@ def api_lottery_status():
     tickets  = get_user_lottery_tickets(username)
     return jsonify({
         "pools":            pools,
-        "jackpot":          pools["prize"],
+        "jackpot":          round(pools["prize"], 2),  # Current drawing prize only
+        "next_jackpot":     round(pools["prize"] + pools["buffer"], 2),  # Preview of next drawing
         "user_ticket_count": len(tickets),
     })
 
@@ -5239,8 +5477,9 @@ def _background_worker():
     """
     FLUSH_INTERVAL   = 30   # seconds
     REFRESH_INTERVAL = 120  # seconds
-    last_flush   = 0.0
-    last_refresh = 0.0
+    STAGGER_DELAY    = 3    # seconds between each cache refresh to avoid quota burst
+    last_flush   = time.time()  # start from now to avoid immediate flush
+    last_refresh = time.time()  # start from now to avoid immediate refresh on startup
 
     while True:
         time.sleep(10)
@@ -5262,19 +5501,31 @@ def _background_worker():
                 ("all_transactions_raw", ["all_transactions_raw"], get_all_transactions_raw),
                 ("all_loans_raw",        ["all_loans_raw"],        get_all_loans_raw),
                 ("all_logs_raw",         ["all_logs_raw"],         get_all_logs_raw),
+                ("all_stock_holdings_raw", ["all_stock_holdings_raw"], get_all_stock_holdings_raw),
+                ("all_invest_funds_raw", ["all_invest_funds_raw"], get_all_invest_funds_raw),
+                ("ads_all",              ["ads_all"],              get_all_ads),
                 ("fed_stats",            ["fed_stats"],            get_federal_reserve_stats),
             ]
             for fn_name, invalidate_keys, fn in refresh_targets:
                 try:
                     cache.invalidate(*invalidate_keys)
                     fn()  # re-populates the cache immediately
+                    # Stagger refreshes to spread API calls over time and avoid quota burst
+                    time.sleep(STAGGER_DELAY)
                 except Exception as exc:
                     print(f"[bg] cache refresh error ({fn_name}): {exc}")
             last_refresh = now
 
 
-_bg_thread = Thread(target=_background_worker, daemon=True)
-_bg_thread.start()
+# Only start background worker once, not in Flask's reloader parent process
+# The WERKZEUG_RUN_MAIN env var is set only in the child worker process
+import os
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    _bg_thread = Thread(target=_background_worker, daemon=True)
+    _bg_thread.start()
+    print("[init] Background cache refresh worker started")
+else:
+    print("[init] Skipping background worker in reloader parent process")
 
 
 if __name__ == "__main__":

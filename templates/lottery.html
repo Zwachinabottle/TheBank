@@ -1287,7 +1287,16 @@
       margin-top: 22px;
       border: 1px solid var(--border);
       border-radius: 14px;
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: 360px;
+      background: var(--bg2);
+    }
+
+    .results-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
       background: var(--bg2);
     }
 
@@ -1336,10 +1345,6 @@
     @media (max-width: 720px) {
       .results-modal-box {
         padding: 24px 18px;
-      }
-
-      .results-table-wrap {
-        overflow-x: auto;
       }
 
       .results-table {
@@ -1414,6 +1419,11 @@
         <div class="jackpot-main" style="align-items:center;">
           <div class="jackpot-label">🏆 Current Jackpot</div>
           <div class="jackpot-amount" id="jackpot-display">${{ "%.2f"|format(pools.prize) }}</div>
+          {% if pools.buffer > 0 %}
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+            Next drawing: ${{ "%.2f"|format(pools.prize + pools.buffer) }}
+          </div>
+          {% endif %}
         </div>
       </div>
 
@@ -1550,7 +1560,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;">
         <div>
           <span class="banker-badge">🔑 Banker Controls</span>
-          <div style="font-size:13px;color:var(--text-muted);margin-top:6px;">Set &amp; run the lottery drawing</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-top:6px;">Set &amp; run the prize drawing</div>
         </div>
         <button class="buy-modal-close" onclick="document.getElementById('bankerModal').classList.remove('open')" aria-label="Close">✕</button>
       </div>
@@ -1607,7 +1617,7 @@
     <div class="modal-box results-modal-box">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
         <div>
-          <span class="banker-badge">📋 Past Lottery</span>
+          <span class="banker-badge">📋 Past Prize</span>
           <h2 style="margin:10px 0 0;font-size:24px;">Winner Payout Table</h2>
           {% if past_lottery_results %}
           <p class="results-meta">
@@ -1627,7 +1637,8 @@
             <tr>
               <th>Winner</th>
               <th>Prize</th>
-              <th>Winning Tickets</th>
+              <th>Drawing</th>
+              <th>Date</th>
               <th>Payout</th>
             </tr>
           </thead>
@@ -1636,7 +1647,8 @@
             <tr>
               <td>{{ row.username }}</td>
               <td>{{ row.prize_type }}</td>
-              <td>{{ row.ticket_count }}</td>
+              <td>{{ row.draw_name }}</td>
+              <td>{{ row.date }}</td>
               <td class="results-amount">${{ "%.2f"|format(row.amount) }}</td>
             </tr>
             {% endfor %}
@@ -1644,7 +1656,7 @@
         </table>
       </div>
       {% elif past_lottery_results %}
-      <div class="results-empty">No one won a payout in the most recent completed lottery.</div>
+      <div class="results-empty">No one won a payout in the most recent completed prize drawing.</div>
       {% else %}
       <div class="results-empty">Run a drawing first, then the latest winners and payouts will appear here.</div>
       {% endif %}
