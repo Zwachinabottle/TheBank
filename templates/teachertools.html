@@ -1634,17 +1634,20 @@
                     (i === 0 ? 'auto' : 'none') + ';">' + adHTML(ad) + '</div>';
             }).join('');
 
+            var dotsWrapper = document.createElement('div');
+            dotsWrapper.style.cssText = 'position:absolute;bottom:0;left:0;width:100%;height:40px;pointer-events:none;z-index:10;';
             var dots = document.createElement('div');
-            dots.style.cssText = 'position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:10;';
+            dots.style.cssText = 'position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:5px;pointer-events:auto;';
             ads.forEach(function (_, i) {
                 var d = document.createElement('div');
                 d.style.cssText = 'width:' + (i===0?'16px':'6px') + ';height:6px;border-radius:3px;background:rgba(255,255,255,' + (i===0?'0.9':'0.4') + ');cursor:pointer;transition:.3s;';
-                d.onclick = function(){ jump(i); };
                 dots.appendChild(d);
             });
-            c.appendChild(dots);
+            dotsWrapper.appendChild(dots);
+            c.appendChild(dotsWrapper);
 
             var slides = c.querySelectorAll('._ad-sl');
+            var slideTimer;
             function jump(idx) {
                 slides[current].style.opacity = '0';
                 slides[current].style.pointerEvents = 'none';
@@ -1656,7 +1659,17 @@
                 dots.children[current].style.width = '16px';
                 dots.children[current].style.background = 'rgba(255,255,255,0.9)';
             }
-            setInterval(function(){ jump((current + 1) % ads.length); }, interval);
+            function autoAdvance() {
+                jump((current + 1) % ads.length);
+            }
+            function resetTimer() {
+                if (slideTimer) clearInterval(slideTimer);
+                slideTimer = setInterval(autoAdvance, interval);
+            }
+            dots.querySelectorAll('div').forEach(function(dot, i) {
+                dot.onclick = function() { jump(i); resetTimer(); };
+            });
+            resetTimer();
         }
 
         function adHTML(ad) {

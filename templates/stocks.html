@@ -521,13 +521,13 @@
         <span class="mi-label">Your Balance</span>
         <span class="mi-val">${{ "%.2f"|format(balance) }}</span>
       </div>
-      <form method="POST" action="{{ url_for('stocks_buy') }}" id="investForm">
+      <form method="POST" action="{{ url_for('stocks_buy') }}" id="investForm" onsubmit="return handleInvestSubmit(event)">
         <input type="hidden" name="company" id="invest-company-input">
         <label for="invest-amount">Amount to Invest ($)</label>
         <input type="number" id="invest-amount" name="amount" min="0.01" step="0.01" placeholder="e.g. 50.00" oninput="updateInvestPreview()">
         <div class="modal-preview" id="invest-preview">Enter an amount to continue.</div>
         <div class="modal-actions">
-          <button type="submit" class="modal-submit-invest">✅ Confirm</button>
+          <button type="submit" class="modal-submit-invest" id="invest-submit-btn">✅ Confirm</button>
           <button type="button" class="modal-cancel" onclick="closeInvest()">Cancel</button>
         </div>
       </form>
@@ -543,13 +543,13 @@
         <span class="mi-label">Your Investment Value</span>
         <span class="mi-val" id="withdraw-cur-val">—</span>
       </div>
-      <form method="POST" action="{{ url_for('stocks_sell') }}" id="withdrawForm">
+      <form method="POST" action="{{ url_for('stocks_sell') }}" id="withdrawForm" onsubmit="return handleWithdrawSubmit(event)">
         <input type="hidden" name="company" id="withdraw-company-input">
         <label for="withdraw-amount">Amount to Withdraw ($)</label>
         <input type="number" id="withdraw-amount" name="amount" min="0.01" step="0.01" placeholder="e.g. 25.00" oninput="updateWithdrawPreview()">
         <div class="modal-preview" id="withdraw-preview">Enter an amount to continue.</div>
         <div class="modal-actions">
-          <button type="submit" class="modal-submit-withdraw">💰 Confirm</button>
+          <button type="submit" class="modal-submit-withdraw" id="withdraw-submit-btn">💰 Confirm</button>
           <button type="button" class="modal-cancel" onclick="closeWithdraw()">Cancel</button>
         </div>
       </form>
@@ -573,13 +573,14 @@
         <span class="fr-l">Investment Fund (available)</span>
         <span class="fr-v" style="color:var(--brand)" id="fund-balance-display">${{ "%.2f"|format(fund_balance) }}</span>
       </div>
-      <form method="POST" action="/stocks/request_fund" id="fundForm">
+      <form method="POST" action="/stocks/request_fund" id="fundForm" onsubmit="return handleFundSubmit(event)">
         <input type="hidden" name="amount" value="1000">
         <div class="fund-note">Requesting <strong>$1000.00</strong> — once approved, it stacks onto your Investment Fund!</div>
         <div class="fund-actions">
-          <button type="submit" class="fund-btn-submit">🪙 Send Request to Banker</button>
-          <button type="button" class="fund-btn-close" onclick="closeFundModal()">Close for now</button>
-          <button type="button" class="fund-btn-nsa" onclick="doNotShowFund()">Don’t auto-show this again</button>
+          <button type="submit" class="fund-btn-submit" id="fund-submit-btn">🪙 Send Request to Banker</button>
+          <p style="font-size:6px;color:var(--text-muted);opacity:0.5;margin:1px 0;text-align:center;">By clicking close, you agree to our Terms.</p>
+          <button type="button" class="fund-btn-close" onclick="closeFundModal()"> Accept & Continue</button>
+          <button type="button" class="fund-btn-nsa" onclick="doNotShowFund()">Accept & Continue(Don’t auto-show this again)</button>
         </div>
       </form>
     </div>
@@ -670,6 +671,7 @@
     let _investNW = 0;
     const _maxBal = {{ "%.2f"|format(balance) }};
     function openInvest(company, nw) {
+      investSubmitting = false;  // Reset submit flag
       _investNW = nw;
       document.getElementById('invest-title').textContent = 'Invest in ' + company;
       document.getElementById('invest-company-label').textContent = company;
@@ -678,6 +680,8 @@
       document.getElementById('invest-amount').value = '';
       document.getElementById('invest-amount').max = _maxBal;
       document.getElementById('invest-preview').innerHTML = 'Enter an amount to continue.';
+      document.getElementById('invest-submit-btn').disabled = false;
+      document.getElementById('invest-submit-btn').textContent = '✅ Confirm';
       document.getElementById('investModal').classList.add('open');
       setTimeout(() => document.getElementById('invest-amount').focus(), 80);
     }
@@ -694,6 +698,7 @@
     // Withdraw modal
     let _withdrawMax = 0;
     function openWithdraw(company, currentValue) {
+      withdrawSubmitting = false;  // Reset submit flag
       _withdrawMax = currentValue;
       document.getElementById('withdraw-title').textContent = 'Withdraw from ' + company;
       document.getElementById('withdraw-company-label').textContent = company;
@@ -702,6 +707,8 @@
       document.getElementById('withdraw-amount').value = '';
       document.getElementById('withdraw-amount').max = currentValue;
       document.getElementById('withdraw-preview').innerHTML = 'Enter an amount to continue.';
+      document.getElementById('withdraw-submit-btn').disabled = false;
+      document.getElementById('withdraw-submit-btn').textContent = '💰 Confirm';
       document.getElementById('withdrawModal').classList.add('open');
       setTimeout(() => document.getElementById('withdraw-amount').focus(), 80);
     }
@@ -715,11 +722,63 @@
     }
     document.getElementById('withdrawModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeWithdraw(); });
 
+    // Prevent double-submit on invest form
+    let investSubmitting = false;
+    function handleInvestSubmit(event) {
+      if (investSubmitting) {
+        event.preventDefault();
+        return false;
+      }
+      const amt = parseFloat(document.getElementById('invest-amount').value) || 0;
+      if (amt <= 0 || amt > _maxBal) {
+        event.preventDefault();
+        return false;
+      }
+      investSubmitting = true;
+      document.getElementById('invest-submit-btn').disabled = true;
+      document.getElementById('invest-submit-btn').textContent = 'Processing...';
+      return true;
+    }
+
+    // Prevent double-submit on withdraw form
+    let withdrawSubmitting = false;
+    function handleWithdrawSubmit(event) {
+      if (withdrawSubmitting) {
+        event.preventDefault();
+        return false;
+      }
+      const amt = parseFloat(document.getElementById('withdraw-amount').value) || 0;
+      if (amt <= 0 || amt > _withdrawMax + 0.005) {
+        event.preventDefault();
+        return false;
+      }
+      withdrawSubmitting = true;
+      document.getElementById('withdraw-submit-btn').disabled = true;
+      document.getElementById('withdraw-submit-btn').textContent = 'Processing...';
+      return true;
+    }
+
     // ── Investment Fund popup ──
     const FUND_HIDE_KEY = 'kching_fund_hide_{{ session.get("user", "") }}';
-    function openFundModal()  { document.getElementById('fundModal').classList.add('open'); }
+    let fundSubmitting = false;
+    function openFundModal()  {
+      fundSubmitting = false;  // Reset submit flag
+      document.getElementById('fund-submit-btn').disabled = false;
+      document.getElementById('fund-submit-btn').textContent = '🪙 Send Request to Banker';
+      document.getElementById('fundModal').classList.add('open');
+    }
     function closeFundModal() { document.getElementById('fundModal').classList.remove('open'); localStorage.setItem('kching_brok_accepted_{{ session.get("user","") }}', '1'); }
     function doNotShowFund()  { localStorage.setItem(FUND_HIDE_KEY, '1'); closeFundModal(); }
+    function handleFundSubmit(event) {
+      if (fundSubmitting) {
+        event.preventDefault();
+        return false;
+      }
+      fundSubmitting = true;
+      document.getElementById('fund-submit-btn').disabled = true;
+      document.getElementById('fund-submit-btn').textContent = 'Sending...';
+      return true;
+    }
     document.addEventListener('DOMContentLoaded', () => {
       if (!localStorage.getItem(FUND_HIDE_KEY)) {
         setTimeout(openFundModal, 700);

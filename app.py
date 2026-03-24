@@ -2130,7 +2130,8 @@ def get_all_stock_holdings_raw():
 
 
 def get_user_investment_holdings(username):
-    """Return a list of {Company, InvestedAmount, NetWorthAtInvestment} for a user."""
+    """Return a list of {Company, InvestedAmount, NetWorthAtInvestment} for a user.
+    Combines multiple investments in the same company using weighted average."""
     cache_key = f"holdings_{username}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -2138,17 +2139,47 @@ def get_user_investment_holdings(username):
 
     # Fetch from shared cache instead of hitting API per-user
     all_rows = get_all_stock_holdings_raw()
-    holdings = [r for r in all_rows if r.get("Username") == username]
-    for h in holdings:
+    user_rows = [r for r in all_rows if r.get("Username") == username]
+
+    # Parse and combine duplicates by company
+    company_map = {}
+    for r in user_rows:
         try:
             # Handle both plain numbers and formatted currency strings (e.g., "$4,150.00")
-            invested_str = str(h.get("InvestedAmount", 0) or 0).replace("$", "").replace(",", "").strip()
-            nw_str = str(h.get("NetWorthAtInvestment", 0) or 0).replace("$", "").replace(",", "").strip()
-            h["InvestedAmount"] = float(invested_str) if invested_str else 0.0
-            h["NetWorthAtInvestment"] = float(nw_str) if nw_str else 0.0
+            invested_str = str(r.get("InvestedAmount", 0) or 0).replace("$", "").replace(",", "").strip()
+            nw_str = str(r.get("NetWorthAtInvestment", 0) or 0).replace("$", "").replace(",", "").strip()
+            invested = float(invested_str) if invested_str else 0.0
+            entry_nw = float(nw_str) if nw_str else 0.0
         except (ValueError, TypeError):
-            h["InvestedAmount"] = 0.0
-            h["NetWorthAtInvestment"] = 0.0
+            invested = 0.0
+            entry_nw = 0.0
+
+        company = r.get("Company", "").strip()
+        if not company:
+            continue
+
+        if company not in company_map:
+            company_map[company] = {
+                "Company": company,
+                "InvestedAmount": 0.0,
+                "NetWorthAtInvestment": 0.0,
+                "total_weight": 0.0  # sum of (invested * entry_nw) for weighted average
+            }
+
+        company_map[company]["InvestedAmount"] += invested
+        company_map[company]["total_weight"] += invested * entry_nw
+
+    # Calculate weighted average entry net worth for each company
+    holdings = []
+    for company_data in company_map.values():
+        total_invested = company_data["InvestedAmount"]
+        if total_invested > 0:
+            company_data["NetWorthAtInvestment"] = round(
+                company_data["total_weight"] / total_invested, 4
+            )
+        del company_data["total_weight"]  # Remove helper field
+        holdings.append(company_data)
+
     cache.set(cache_key, holdings, ttl=SheetCache.SHORT_TTL)
     return holdings
 
@@ -2237,7 +2268,7 @@ def invest_in_company(username, company_name, amount):
         return "invalid_amount"
 
     with get_transfer_lock(username):
-        cache.invalidate("all_users", f"user_balance_{username}", "investments_data")
+        cache.invalidate("all_users", f"user_balance_{username}", "investments_data", "all_stock_holdings_raw", f"holdings_{username}")
 
         data = get_investments_data()
         company = next((c for c in data["companies"] if c["name"] == company_name), None)
@@ -2293,7 +2324,7 @@ def invest_in_company(username, company_name, amount):
             )
 
         retry_with_backoff(update_holdings)
-        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", "all_users")
+        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", "all_users", "all_stock_holdings_raw")
         return "success"
 
 
@@ -2309,7 +2340,7 @@ def divest_from_company(username, company_name, withdraw_amount):
 
     with get_transfer_lock(username):
         cache.invalidate("all_users", f"user_balance_{username}", "investments_data",
-                         f"holdings_{username}")
+                         f"holdings_{username}", "all_stock_holdings_raw")
 
         data = get_investments_data()
         company = next((c for c in data["companies"] if c["name"] == company_name), None)
@@ -2340,13 +2371,24 @@ def divest_from_company(username, company_name, withdraw_amount):
 
         def update_holdings():
             all_rows = stock_holdings_sheet.get_all_records()
+            matching_rows = []
             for idx, row in enumerate(all_rows, start=2):
                 if row.get("Username") == username and row.get("Company") == company_name:
-                    if remaining_invested <= 0.001:
-                        stock_holdings_sheet.delete_rows(idx)
-                    else:
-                        stock_holdings_sheet.update_cell(idx, 3, remaining_invested)
-                    return
+                    matching_rows.append(idx)
+
+            if not matching_rows:
+                return
+
+            # If withdrawing everything, delete all matching rows
+            if remaining_invested <= 0.001:
+                # Delete in reverse order to maintain correct indices
+                for idx in reversed(matching_rows):
+                    stock_holdings_sheet.delete_rows(idx)
+            else:
+                # Keep only the first row with the remaining investment, delete others
+                stock_holdings_sheet.update_cell(matching_rows[0], 3, remaining_invested)
+                for idx in reversed(matching_rows[1:]):
+                    stock_holdings_sheet.delete_rows(idx)
 
         retry_with_backoff(update_holdings)
 
@@ -2360,7 +2402,7 @@ def divest_from_company(username, company_name, withdraw_amount):
         add_investment_log(username, "SellInvestment", company_name, round(withdraw_amount, 2),
                            f"Withdrew ${withdraw_amount:.2f} from {company_name}")
 
-        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", f"inv_fund_{username}", "all_users")
+        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", f"inv_fund_{username}", "all_users", "all_stock_holdings_raw")
         return "success"
 
 
