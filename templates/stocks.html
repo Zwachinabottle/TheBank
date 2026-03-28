@@ -200,8 +200,25 @@
     .modal-overlay.open { display:flex; }
     .modal-box { background:var(--bg2); border:1px solid var(--border); border-radius:20px; padding:34px 38px; width:90%; max-width:420px; box-shadow:0 24px 60px rgba(0,0,0,0.45); animation:popIn 0.25s cubic-bezier(0.34,1.56,0.64,1); }
     @keyframes popIn { from{transform:scale(0.75);opacity:0} to{transform:scale(1);opacity:1} }
-    .modal-box h2    { margin:0 0 4px; font-size:20px; font-weight:800; }
-    .modal-company   { color:var(--text-muted); font-size:13px; margin:0 0 18px; }
+    .modal-box h2    { margin:0 0 10px; font-size:20px; font-weight:800; }
+    .invest-company-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 18px; }
+    .modal-company   { color:var(--text-muted); font-size:13px; margin:0; }
+    .investor-cap-inline { display:inline-flex; align-items:center; gap:8px; background:rgba(36,191,240,0.12); border:1px solid rgba(36,191,240,0.28); border-radius:999px; padding:5px 10px; color:var(--brand); font-size:11px; font-weight:700; white-space:nowrap; }
+    .investor-cap-inline strong { color:var(--text); font-weight:800; }
+    .cap-help-wrap { position:relative; display:inline-flex; align-items:center; }
+    .cap-help-btn { width:16px; height:16px; border-radius:50%; border:1px solid rgba(36,191,240,0.35); background:transparent; color:var(--brand); font-size:10px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; padding:0; }
+    .cap-help-btn:hover { border-color:var(--brand); color:var(--text); }
+    .cap-info-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.72); z-index:3600; align-items:center; justify-content:center; padding:18px; }
+    .cap-info-overlay.open { display:flex; }
+    .cap-info-box { background:var(--bg2); border:1px solid var(--border); border-radius:16px; width:100%; max-width:560px; box-shadow:0 30px 70px rgba(0,0,0,0.55); animation:popIn 0.22s cubic-bezier(0.34,1.56,0.64,1); }
+    .cap-info-header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:18px 20px 12px; border-bottom:1px solid var(--border); }
+    .cap-info-title { margin:0; font-size:17px; font-weight:800; color:var(--text); }
+    .cap-info-close { background:none; border:1px solid var(--border); border-radius:8px; width:30px; height:30px; color:var(--text-muted); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+    .cap-info-close:hover { color:var(--text); border-color:var(--text-muted); }
+    .cap-info-body { padding:16px 20px 18px; color:var(--text-muted); font-size:13px; line-height:1.65; }
+    .cap-info-body p { margin:0 0 10px; }
+    .cap-info-body p:last-child { margin-bottom:0; }
+    .cap-info-body strong { color:var(--text); }
     .modal-info-row  { display:flex; justify-content:space-between; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:11px 14px; margin-bottom:12px; font-size:14px; }
     .modal-info-row .mi-label { color:var(--text-muted); }
     .modal-info-row .mi-val   { font-weight:700; }
@@ -442,7 +459,7 @@
             {% endif %}
 
             <div class="card-actions">
-              <button class="btn-invest" onclick="openInvest('{{ company.name }}', {{ company.netWorth }})">💵 Invest</button>
+              <button class="btn-invest" onclick="openInvest('{{ company.name }}', '{{ company.netWorth }}', '{{ company.entityLimit or 0 }}', '{{ invested }}')">💵 Invest</button>
               <button class="btn-withdraw"
                 {% if not has_investment %}disabled title="No investment here"
                 {% else %}onclick="openWithdraw('{{ company.name }}', {{ cur_val }})"{% endif %}>
@@ -512,7 +529,15 @@
   <div class="modal-overlay" id="investModal">
     <div class="modal-box">
       <h2 id="invest-title">Invest</h2>
-      <p class="modal-company" id="invest-company-label"></p>
+      <div class="invest-company-row">
+        <p class="modal-company" id="invest-company-label"></p>
+        <div class="investor-cap-inline" id="invest-cap-inline">
+          <span>Investor Cap: <strong id="invest-cap-value">No cap</strong></span>
+          <div class="cap-help-wrap">
+            <button type="button" class="cap-help-btn" aria-label="What is Investor Cap?" onclick="toggleInvestorCapPopup(event)">?</button>
+          </div>
+        </div>
+      </div>
       <div class="modal-info-row">
         <span class="mi-label">Current Net Worth</span>
         <span class="mi-val" id="invest-nw">—</span>
@@ -531,6 +556,20 @@
           <button type="button" class="modal-cancel" onclick="closeInvest()">Cancel</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div class="cap-info-overlay" id="investorCapInfoModal" role="dialog" aria-label="Investor Cap details" aria-hidden="true">
+    <div class="cap-info-box">
+      <div class="cap-info-header">
+        <h3 class="cap-info-title">How Investor Cap Works</h3>
+        <button type="button" class="cap-info-close" onclick="closeInvestorCapPopup(event)" aria-label="Close Investor Cap details">x</button>
+      </div>
+      <div class="cap-info-body">
+        <p><strong>Investor Cap</strong> is the remaining dollar amount you can invest in this company right now.</p>
+        <p>Your share value of the company is based on the available shares and current valuation. As more shares are bought, fewer shares remain, so the dollar capacity shrinks.</p>
+        <p>Because of the networth of the company only so many shares can be bought before it exeeds the value of the company.</p>
+      </div>
     </div>
   </div>
 
@@ -669,28 +708,86 @@
 
     // Invest modal
     let _investNW = 0;
-    const _maxBal = {{ "%.2f"|format(balance) }};
-    function openInvest(company, nw) {
+    let _investCap = 0;
+    let _entityLimit = 0;
+    let _alreadyInvested = 0;
+    const _maxBal = parseFloat('{{ "%.2f"|format(balance) }}') || 0;
+    const _maxFund = parseFloat('{{ "%.2f"|format(fund_balance) }}') || 0;
+    function openInvest(company, nw, entityLimit, alreadyInvested) {
       investSubmitting = false;  // Reset submit flag
       _investNW = nw;
+      _entityLimit = Number(entityLimit) || 0;
+      _alreadyInvested = Number(alreadyInvested) || 0;
+
+      const remainingLimit = _entityLimit > 0 ? Math.max(_entityLimit - _alreadyInvested, 0) : Number.POSITIVE_INFINITY;
+      _investCap = Math.min(_maxBal, _maxFund, remainingLimit);
+
       document.getElementById('invest-title').textContent = 'Invest in ' + company;
       document.getElementById('invest-company-label').textContent = company;
       document.getElementById('invest-nw').textContent = '$' + nw.toLocaleString();
       document.getElementById('invest-company-input').value = company;
       document.getElementById('invest-amount').value = '';
-      document.getElementById('invest-amount').max = _maxBal;
+      document.getElementById('invest-amount').max = _investCap > 0 ? _investCap.toFixed(2) : '0';
       document.getElementById('invest-preview').innerHTML = 'Enter an amount to continue.';
       document.getElementById('invest-submit-btn').disabled = false;
       document.getElementById('invest-submit-btn').textContent = '✅ Confirm';
+
+      const capValue = document.getElementById('invest-cap-value');
+      if (_entityLimit > 0) {
+        capValue.textContent = '$' + Math.max(_entityLimit - _alreadyInvested, 0).toFixed(2);
+      } else {
+        capValue.textContent = 'No cap';
+      }
+
       document.getElementById('investModal').classList.add('open');
       setTimeout(() => document.getElementById('invest-amount').focus(), 80);
     }
-    function closeInvest() { document.getElementById('investModal').classList.remove('open'); }
+    function closeInvest() {
+      document.getElementById('investModal').classList.remove('open');
+      closeInvestorCapPopup();
+    }
+    function toggleInvestorCapPopup(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const modal = document.getElementById('investorCapInfoModal');
+      if (!modal) return;
+      const willOpen = !modal.classList.contains('open');
+      modal.classList.toggle('open', willOpen);
+      modal.setAttribute('aria-hidden', willOpen ? 'false' : 'true');
+    }
+    function closeInvestorCapPopup(event) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      const modal = document.getElementById('investorCapInfoModal');
+      if (!modal) return;
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    document.addEventListener('click', (e) => {
+      const modal = document.getElementById('investorCapInfoModal');
+      if (!modal || !modal.classList.contains('open')) return;
+      if (e.target === modal) closeInvestorCapPopup();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeInvestorCapPopup();
+    });
     function updateInvestPreview() {
       const amt = parseFloat(document.getElementById('invest-amount').value) || 0;
       const el = document.getElementById('invest-preview');
       if (amt <= 0) { el.innerHTML = 'Enter an amount to continue.'; return; }
+      if (_maxFund <= 0) { el.innerHTML = '<span style="color:var(--red)">No Investment Fund available yet.</span>'; return; }
       if (amt > _maxBal) { el.innerHTML = '<span style="color:var(--red)">Exceeds your balance!</span>'; return; }
+      if (amt > _maxFund) { el.innerHTML = '<span style="color:var(--red)">Exceeds your Investment Fund balance!</span>'; return; }
+      if (_entityLimit > 0 && amt > Math.max(_entityLimit - _alreadyInvested, 0) + 0.005) {
+        el.innerHTML = '<span style="color:var(--red)">Exceeds this company\'s Investor Cap.</span>';
+        return;
+      }
+      if (_investCap > 0 && amt > _investCap + 0.005) {
+        el.innerHTML = '<span style="color:var(--red)">Exceeds your allowed max right now.</span>';
+        return;
+      }
       el.innerHTML = 'Investing <strong>$' + amt.toFixed(2) + '</strong> — tracks company net worth.';
     }
     document.getElementById('investModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInvest(); });
@@ -730,7 +827,7 @@
         return false;
       }
       const amt = parseFloat(document.getElementById('invest-amount').value) || 0;
-      if (amt <= 0 || amt > _maxBal) {
+      if (amt <= 0 || amt > _investCap + 0.005) {
         event.preventDefault();
         return false;
       }

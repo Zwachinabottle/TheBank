@@ -1994,7 +1994,7 @@ def get_investments_data():
       Rows 3+ → companies           (col A = company name, col B+ = net worth per week)
     """
     global _investment_week_override
-    cache_key = "investments_data"
+    cache_key = "investments_data_v2"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -2014,8 +2014,26 @@ def get_investments_data():
     weeks_row     = raw[0] if len(raw) > 0 else []   # row 1: week headers
     inflation_row = raw[1] if len(raw) > 1 else []   # row 2: inflation values
 
-    # All week labels in col B onward (index 1+)
-    all_weeks = [str(weeks_row[i]) for i in range(1, len(weeks_row)) if str(weeks_row[i]).strip()]
+    def _norm_header(v):
+        # Keep only alphanumeric chars so variations like "Entity Limit",
+        # "entity-limit", and "ENTITY_LIMIT" all normalize the same.
+        return "".join(ch for ch in str(v).strip().lower() if ch.isalnum())
+
+    # Column names like InvestorCap / EntityLimit are treated as metadata, not week columns.
+    entity_limit_col = None
+    week_cols = []
+    for i in range(1, len(weeks_row)):
+        label = str(weeks_row[i]).strip()
+        if not label:
+            continue
+        normalized_label = _norm_header(label)
+        if normalized_label in ("entitylimit", "investorcap", "positioncap", "allocationcap"):
+            entity_limit_col = i
+            continue
+        week_cols.append(i)
+
+    # All selectable week labels (exclude metadata columns like InvestorCap)
+    all_weeks = [str(weeks_row[i]) for i in week_cols]
 
     company_rows = raw[2:] if len(raw) > 2 else []
 
@@ -2023,17 +2041,17 @@ def get_investments_data():
     # 1. In-memory override (set_investment_week stores it here instantly — no API lag)
     # 2. CurrentWeek row in the sheet (survives server restarts)
     # 3. Fallback: rightmost labelled week column
-    current_col = 1
+    current_col = week_cols[0] if week_cols else 1
 
     def _find_col_by_label(label):
         label_l = label.strip().lower()
         # Exact match first
-        for i in range(1, len(weeks_row)):
+        for i in week_cols:
             if str(weeks_row[i]).strip().lower() == label_l:
                 return i
         # Fallback: collapse all whitespace and compare (handles double-space, etc.)
         label_norm = " ".join(label_l.split())
-        for i in range(1, len(weeks_row)):
+        for i in week_cols:
             if " ".join(str(weeks_row[i]).strip().lower().split()) == label_norm:
                 return i
         return None
@@ -2055,9 +2073,8 @@ def get_investments_data():
             _investment_week_override = str(weeks_row[col]).strip()
         else:
             # Nothing persisted yet — default to rightmost labelled week
-            for i in range(1, len(weeks_row)):
-                if str(weeks_row[i]).strip():
-                    current_col = i
+            if week_cols:
+                current_col = week_cols[-1]
 
     current_week_label = str(weeks_row[current_col]) if current_col < len(weeks_row) else ""
 
@@ -2075,9 +2092,7 @@ def get_investments_data():
 
         # Build history for every labelled week
         history = []
-        for i in range(1, len(weeks_row)):
-            if not str(weeks_row[i]).strip():
-                continue
+        for i in week_cols:
             val = _parse_nw(row[i]) if i < len(row) else 0.0
             history.append({"week": str(weeks_row[i]), "netWorth": val})
 
@@ -2085,8 +2100,17 @@ def get_investments_data():
 
         # Previous week value for change %
         prev_nw = 0.0
-        if current_col > 1:
-            prev_nw = _parse_nw(row[current_col - 1]) if (current_col - 1) < len(row) else 0.0
+        if current_col in week_cols:
+            current_week_idx = week_cols.index(current_col)
+            if current_week_idx > 0:
+                prev_col = week_cols[current_week_idx - 1]
+                prev_nw = _parse_nw(row[prev_col]) if prev_col < len(row) else 0.0
+
+        entity_limit = None
+        if entity_limit_col is not None and entity_limit_col < len(row):
+            parsed_limit = _parse_nw(row[entity_limit_col])
+            if parsed_limit > 0:
+                entity_limit = round(parsed_limit, 2)
 
         change_pct = round((current_nw - prev_nw) / prev_nw * 100, 2) if prev_nw > 0 else 0.0
 
@@ -2096,6 +2120,7 @@ def get_investments_data():
             "prevNetWorth": prev_nw,
             "changePct":    change_pct,
             "history":      history,
+            "entityLimit":  entity_limit,
         })
 
     result = {
@@ -2106,7 +2131,8 @@ def get_investments_data():
     }
     # Only cache if we actually got companies — prevents stale empty results
     if companies:
-        cache.set(cache_key, result)
+        # Manual sheet edits (like changing InvestorCap) should appear quickly.
+        cache.set(cache_key, result, ttl=SheetCache.SHORT_TTL)
     return result
 
 
@@ -2263,12 +2289,13 @@ def invest_in_company(username, company_name, amount):
     Requires both: approved investment fund AND main account balance.
     Returns: 'success' | 'company_not_found' | 'insufficient_balance'
              | 'invalid_amount' | 'no_net_worth' | 'no_fund'
+             | 'entity_limit_reached' | 'entity_limit_exceeded'
     """
     if amount <= 0:
         return "invalid_amount"
 
     with get_transfer_lock(username):
-        cache.invalidate("all_users", f"user_balance_{username}", "investments_data", "all_stock_holdings_raw", f"holdings_{username}")
+        cache.invalidate("all_users", f"user_balance_{username}", "investments_data", "investments_data_v2", "all_stock_holdings_raw", f"holdings_{username}")
 
         data = get_investments_data()
         company = next((c for c in data["companies"] if c["name"] == company_name), None)
@@ -2276,6 +2303,18 @@ def invest_in_company(username, company_name, amount):
             return "company_not_found"
         if company["netWorth"] <= 0:
             return "no_net_worth"
+
+        # Optional per-company cap: max principal each user can put into one company.
+        entity_limit = company.get("entityLimit")
+        if entity_limit and entity_limit > 0:
+            holdings = get_user_investment_holdings(username)
+            existing_holding = next((h for h in holdings if h.get("Company") == company_name), None)
+            already_invested = float(existing_holding.get("InvestedAmount", 0)) if existing_holding else 0.0
+            remaining_limit = round(entity_limit - already_invested, 2)
+            if remaining_limit <= 0:
+                return "entity_limit_reached"
+            if amount > remaining_limit + 0.005:  # float tolerance
+                return "entity_limit_exceeded"
 
         # Check investment fund (must have approved funds to invest)
         fund_balance = get_investment_fund_balance(username)
@@ -2339,7 +2378,7 @@ def divest_from_company(username, company_name, withdraw_amount):
         return "invalid_amount"
 
     with get_transfer_lock(username):
-        cache.invalidate("all_users", f"user_balance_{username}", "investments_data",
+        cache.invalidate("all_users", f"user_balance_{username}", "investments_data", "investments_data_v2",
                          f"holdings_{username}", "all_stock_holdings_raw")
 
         data = get_investments_data()
@@ -5180,7 +5219,7 @@ def stocks():
     inv_data  = get_investments_data()
     # If cache returned empty companies, bust and re-fetch once
     if not inv_data["companies"]:
-        cache.invalidate("investments_data")
+        cache.invalidate("investments_data", "investments_data_v2")
         inv_data = get_investments_data()
     holdings     = get_user_investment_holdings(username)
     balance      = get_user_balance(username)
@@ -5229,6 +5268,10 @@ def stocks_buy():
         flash("You don't have an investment fund. Request funds from your banker first.", "error")
     elif result == "insufficient_balance":
         flash("Amount exceeds your available investment fund balance.", "error")
+    elif result == "entity_limit_reached":
+        flash("You already reached the Investor Cap for this company.", "error")
+    elif result == "entity_limit_exceeded":
+        flash("Amount exceeds the Investor Cap for this company.", "error")
     elif result == "company_not_found":
         flash("Company not found.", "error")
     elif result == "no_net_worth":
@@ -5415,7 +5458,7 @@ def retroactive_fund_correction():
 def clear_investments_cache():
     """Clear the investments data cache to refresh manually-added data."""
     try:
-        cache.invalidate("investments_data")
+        cache.invalidate("investments_data", "investments_data_v2")
         log_action(session["user"], "Cleared investments data cache", 0, "Cache Clear")
         flash("✓ Investments cache cleared. Stock floor will refresh with latest data.", "success")
     except Exception as e:
@@ -5468,7 +5511,7 @@ def set_investment_week():
 
     # Set in-memory first — takes effect on the very next request, no API lag
     _investment_week_override = week_label
-    cache.invalidate("investments_data")
+    cache.invalidate("investments_data", "investments_data_v2")
 
     # Persist to the Reserve sheet (same key-value row as ExchangeRate, TimePeriod, etc.)
     try:
@@ -5491,7 +5534,7 @@ def debug_investments():
     except Exception as e:
         return jsonify({"error": str(e)})
 
-    cache.invalidate("investments_data")  # force fresh parse
+    cache.invalidate("investments_data", "investments_data_v2")  # force fresh parse
     parsed = get_investments_data()
 
     return jsonify({
