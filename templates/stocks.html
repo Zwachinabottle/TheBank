@@ -502,8 +502,12 @@
                 {% set invested = h.get('InvestedAmount', 0) if h else 0 %}
                 {% set entry_nw = h.get('NetWorthAtInvestment', 0) if h else 0 %}
                 {% if invested > 0 and entry_nw > 0 %}
-                  {% set cur_val = invested * (company.netWorth / entry_nw) %}
-                  {% set pl = cur_val - invested %}
+                  {% set gross_val = invested * (company.netWorth / entry_nw) %}
+                  {% set gross_profit = gross_val - invested %}
+                  {# Apply 5% bank fee to profits only #}
+                  {% set net_profit = (gross_profit * 0.95) if gross_profit > 0 else gross_profit %}
+                  {% set cur_val = invested + net_profit %}
+                  {% set pl = net_profit %}
                   <tr>
                     <td><strong>{{ company.name }}</strong></td>
                     <td>${{ "%.2f"|format(invested) }}</td>

@@ -2259,7 +2259,7 @@ def update_investment_fund_balance(username, delta):
         new_bal = max(0.0, round(delta, 2))
         invest_funds_sheet.append_row([username, new_bal])
     retry_with_backoff(_update)
-    cache.invalidate(f"inv_fund_{username}")
+    cache.invalidate(f"inv_fund_{username}", "all_invest_funds_raw")
 
 
 def get_pending_fund_requests():
@@ -2369,8 +2369,10 @@ def invest_in_company(username, company_name, amount):
 
 def divest_from_company(username, company_name, withdraw_amount):
     """
-    Withdraw `withdraw_amount` dollars (current value) from `username`'s investment
-    in `company_name`.  The actual proceeds = withdraw_amount (we pay out at current value).
+    Withdraw `withdraw_amount` dollars (net current value) from `username`'s investment
+    in `company_name`. The user receives exactly the withdraw_amount they request.
+    A 5% bank fee is automatically applied to the profit portion (already reflected in the
+    displayed current value to users - they see and withdraw net amounts).
     Returns: 'success' | 'company_not_found' | 'not_enough_investment'
              | 'invalid_amount' | 'no_net_worth'
     """
@@ -2394,12 +2396,14 @@ def divest_from_company(username, company_name, withdraw_amount):
         if not holding:
             return "not_enough_investment"
 
-        # Current value of their entire stake
+        # Current value of their entire stake (net value after 5% bank fee on profits)
         entry_nw = holding["NetWorthAtInvestment"]
         invested = holding["InvestedAmount"]
-        current_value = round(
-            invested * (company["netWorth"] / entry_nw) if entry_nw > 0 else 0.0, 2
-        )
+        gross_value = invested * (company["netWorth"] / entry_nw) if entry_nw > 0 else 0.0
+        gross_profit = gross_value - invested
+        # Apply 5% bank fee to profits only
+        net_profit = (gross_profit * 0.95) if gross_profit > 0 else gross_profit
+        current_value = round(invested + net_profit, 2)
 
         if withdraw_amount > current_value + 0.005:  # small float tolerance
             return "not_enough_investment"
@@ -2407,6 +2411,17 @@ def divest_from_company(username, company_name, withdraw_amount):
         # Fraction of stake being withdrawn
         fraction = withdraw_amount / current_value if current_value > 0 else 1.0
         remaining_invested = round(invested * (1 - fraction), 4)
+
+        # Calculate the 5% bank fee
+        # Users see and withdraw net amounts (after fee), so we reverse-calculate the fee
+        original_invested_for_withdrawal = round(invested * fraction, 4)
+        net_profit_for_withdrawal = round(withdraw_amount - original_invested_for_withdrawal, 2)
+
+        fee = 0.0
+        if net_profit_for_withdrawal > 0:
+            # Reverse calculate: if net = gross * 0.95, then gross = net / 0.95
+            gross_profit_for_withdrawal = round(net_profit_for_withdrawal / 0.95, 2)
+            fee = round(gross_profit_for_withdrawal - net_profit_for_withdrawal, 2)
 
         def update_holdings():
             all_rows = stock_holdings_sheet.get_all_records()
@@ -2431,9 +2446,23 @@ def divest_from_company(username, company_name, withdraw_amount):
 
         retry_with_backoff(update_holdings)
 
-        # Credit user balance
+        # Credit user balance with exactly what they requested (net amount shown in UI)
         balance = get_user_balance(username)
         update_balance(username, round(balance + withdraw_amount, 2))
+
+        # Add the 5% fee to bank account (bank gets the difference between net and gross)
+        if fee > 0:
+            try:
+                cache.invalidate("bank_account")
+                bank_account = get_bank_account()
+                bank_balance = float(bank_account.get("Balance", 0))
+                update_bank_balance(bank_balance + fee)
+                log_fee(username, "Bank", withdraw_amount, fee,
+                        f"5% stock profit fee on withdrawal from {company_name}")
+            except Exception as fee_err:
+                print(f"WARNING: Could not collect 5% stock profit fee for {username} "
+                      f"withdrawal from {company_name} ${withdraw_amount}: {fee_err}")
+                # Transaction already completed - fee collection failure is logged but doesn't block user
 
         # Add withdrawn amount back to investment fund for reinvestment
         update_investment_fund_balance(username, round(withdraw_amount, 2))
@@ -2441,7 +2470,7 @@ def divest_from_company(username, company_name, withdraw_amount):
         add_investment_log(username, "SellInvestment", company_name, round(withdraw_amount, 2),
                            f"Withdrew ${withdraw_amount:.2f} from {company_name}")
 
-        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", f"inv_fund_{username}", "all_users", "all_stock_holdings_raw")
+        cache.invalidate(f"holdings_{username}", f"user_balance_{username}", f"inv_fund_{username}", "all_users", "all_stock_holdings_raw", "bank_account")
         return "success"
 
 
@@ -5228,12 +5257,18 @@ def stocks():
     # Map company name → holding for template lookup
     holdings_map = {h["Company"]: h for h in holdings}
 
-    # Compute current portfolio value (each stake grows with net worth)
+    # Compute current portfolio value (each stake grows with net worth, minus 5% bank fee on profits)
     portfolio_value = 0.0
     for h in holdings:
         company = next((c for c in inv_data["companies"] if c["name"] == h["Company"]), None)
         if company and h["NetWorthAtInvestment"] > 0:
-            portfolio_value += h["InvestedAmount"] * (company["netWorth"] / h["NetWorthAtInvestment"])
+            invested = h["InvestedAmount"]
+            gross_value = invested * (company["netWorth"] / h["NetWorthAtInvestment"])
+            gross_profit = gross_value - invested
+            # Apply 5% bank fee to profits only (no fee on losses)
+            net_profit = (gross_profit * 0.95) if gross_profit > 0 else gross_profit
+            net_value = invested + net_profit
+            portfolio_value += net_value
 
     return render_template(
         "stocks.html",
