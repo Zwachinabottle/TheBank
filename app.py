@@ -2268,12 +2268,92 @@ def get_user_investment_holdings(username, current_net_worth_by_company=None):
     return holdings
 
 
+def get_all_investment_logs_raw():
+    """Return all rows from the InvestmentLogs sheet, shared across callers."""
+    cache_key = "all_investment_logs_raw"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    def fetch():
+        return investment_logs_sheet.get_all_records()
+
+    rows = retry_with_backoff(fetch)
+    cache.set(cache_key, rows, ttl=SheetCache.MEDIUM_TTL)
+    return rows
+
+
+def _parse_log_datetime(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y",
+    ):
+        try:
+            return datetime.strptime(raw, fmt)
+        except Exception:
+            continue
+    return None
+
+
+def _parse_week_label_datetime(label):
+    raw = str(label or "").strip()
+    if not raw:
+        return None
+    for fmt in (
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%b %d %Y",
+        "%b %d, %Y",
+        "%B %d %Y",
+        "%B %d, %Y",
+    ):
+        try:
+            return datetime.strptime(raw, fmt)
+        except Exception:
+            continue
+    m = re.search(r"(\d{1,2}/\d{1,2}/\d{2,4})", raw)
+    if m:
+        token = m.group(1)
+        for fmt in ("%m/%d/%Y", "%m/%d/%y"):
+            try:
+                return datetime.strptime(token, fmt)
+            except Exception:
+                continue
+    return None
+
+
+def _infer_buy_net_worth(company_history, buy_dt, current_nw):
+    points = []
+    for idx, point in enumerate(company_history):
+        points.append({
+            "idx": idx,
+            "netWorth": float(point.get("netWorth", 0) or 0),
+            "date": _parse_week_label_datetime(point.get("week", "")),
+        })
+
+    dated_points = [p for p in points if p["date"] is not None and p["netWorth"] > 0]
+    if buy_dt is not None and dated_points:
+        eligible = [p for p in dated_points if p["date"] <= buy_dt]
+        pick = eligible[-1] if eligible else dated_points[0]
+        return pick["netWorth"], "high"
+
+    return float(current_nw or 0), "low"
+
+
 def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
     """Retroactively normalize stock holdings after historical reinvest bugs.
 
-    For each (user, company), this consolidates duplicate rows into one canonical
-    row while preserving the *current* net value under the 5% profit-fee model.
-    This avoids profit jumps caused by bad historical averaging when reinvesting.
+     For each (user, company), this does two things:
+     1) consolidates duplicate holding rows while preserving current value,
+     2) when confidence is high, replays multi-buy growth expectation from logs
+         and corrects diluted profit caused by historical reinvest averaging.
 
     Args:
         dry_run (bool): If True, compute and return impact summary without writes.
@@ -2288,10 +2368,13 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
             "samples": list[str],
             "preview_rows": list[dict],
             "total_value_fix": float,
+            "dilution_positions": int,
         }
     """
     inv_data = get_investments_data()
-    current_nw_map = {c["name"]: float(c.get("netWorth", 0) or 0) for c in inv_data.get("companies", [])}
+    company_map = {c["name"]: c for c in inv_data.get("companies", [])}
+    current_nw_map = {name: float(c.get("netWorth", 0) or 0) for name, c in company_map.items()}
+    all_logs = get_all_investment_logs_raw()
 
     def fetch_rows():
         return stock_holdings_sheet.get_all_records()
@@ -2316,6 +2399,7 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
     sample_lines = []
     preview_rows = []
     total_value_fix = 0.0
+    dilution_positions = 0
 
     for (username, company), rows in grouped.items():
         current_nw = current_nw_map.get(company, 0.0)
@@ -2327,11 +2411,74 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
             continue
 
         total_invested = sum(inv for (_, inv, _) in valid_rows)
-        total_net_value = sum(_net_value_for_position(inv, nw, current_nw) for (_, inv, nw) in valid_rows)
-        corrected_entry_nw = _entry_net_worth_from_net_value(total_invested, total_net_value, current_nw)
+        actual_current_value = sum(_net_value_for_position(inv, nw, current_nw) for (_, inv, nw) in valid_rows)
+
+        expected_current_value = actual_current_value
+        replay_confidence = "none"
+        replay_method = "consolidation"
+        replay_possible = False
+
+        company_info = company_map.get(company, {})
+        company_history = company_info.get("history", []) if company_info else []
+
+        position_logs = []
+        for log in all_logs:
+            if str(log.get("Username", "") or "").strip() != username:
+                continue
+            if str(log.get("Company", "") or "").strip() != company:
+                continue
+            action = str(log.get("Action", "") or "").strip()
+            if action not in ("BuyInvestment", "SellInvestment"):
+                continue
+            amt = _parse_money_value(log.get("Amount", 0))
+            if amt <= 0:
+                continue
+            position_logs.append({
+                "action": action,
+                "amount": amt,
+                "dt": _parse_log_datetime(log.get("Date", "")),
+            })
+
+        position_logs.sort(key=lambda item: (item["dt"] is None, item["dt"] or datetime.min))
+
+        has_sell = any(item["action"] == "SellInvestment" for item in position_logs)
+        buy_logs = [item for item in position_logs if item["action"] == "BuyInvestment"]
+
+        if (not has_sell) and len(buy_logs) >= 2 and company_history:
+            replay_possible = True
+            buy_confidences = []
+            lots = []
+            for buy in buy_logs:
+                buy_nw, confidence = _infer_buy_net_worth(company_history, buy["dt"], current_nw)
+                buy_confidences.append(confidence)
+                lots.append((buy["amount"], buy_nw))
+
+            replay_confidence = "high" if all(c == "high" for c in buy_confidences) else "low"
+            expected_invested = sum(lot_amount for lot_amount, _ in lots)
+            invested_gap = abs(expected_invested - total_invested)
+
+            if invested_gap <= 0.05:
+                replay_method = "expected-vs-actual"
+                expected_current_value = sum(
+                    _net_value_for_position(lot_amount, lot_nw, current_nw)
+                    for lot_amount, lot_nw in lots
+                    if lot_amount > 0 and lot_nw > 0
+                )
 
         first_idx, first_inv, first_nw = valid_rows[0]
         current_value_before = _net_value_for_position(first_inv, first_nw, current_nw)
+
+        deviation_amount = round(expected_current_value - actual_current_value, 2)
+        if replay_confidence != "high" or deviation_amount <= 0.01:
+            expected_current_value = actual_current_value
+            deviation_amount = 0.0
+
+        if deviation_amount > 0.01:
+            replay_method = "dilution-fix"
+            dilution_positions += 1
+
+        corrected_entry_nw = _entry_net_worth_from_net_value(total_invested, expected_current_value, current_nw)
+
         current_value_after = _net_value_for_position(total_invested, corrected_entry_nw, current_nw)
         value_fix_amount = round(current_value_after - current_value_before, 2)
         invested_changed = abs(first_inv - total_invested) > 0.0001
@@ -2355,7 +2502,7 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
 
         if len(sample_lines) < max(1, int(sample_limit)):
             sample_lines.append(
-                f"{username} / {company}: invested ${total_invested:.2f}, entry NW {corrected_entry_nw:.4f}, duplicates {max(0, len(valid_rows)-1)}"
+                f"{username} / {company}: fix ${value_fix_amount:.2f}, confidence {replay_confidence}, method {replay_method}"
             )
 
         preview_rows.append({
@@ -2371,6 +2518,10 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
             "current_value_before": round(current_value_before, 2),
             "current_value_after": round(current_value_after, 2),
             "value_fix_amount": value_fix_amount,
+            "deviation_amount": deviation_amount,
+            "confidence": replay_confidence,
+            "method": replay_method,
+            "replay_possible": replay_possible,
         })
 
     if updates and not dry_run:
@@ -2393,6 +2544,7 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
         "samples": sample_lines,
         "preview_rows": preview_rows,
         "total_value_fix": total_value_fix,
+        "dilution_positions": dilution_positions,
     }
 
 
@@ -5704,13 +5856,15 @@ def retroactive_reinvestment_profit_fix():
         positions_corrected = summary["positions_corrected"]
         users_affected = summary["users_affected"]
         rows_deleted = summary["rows_deleted"]
+        dilution_positions = summary.get("dilution_positions", 0)
         cache.invalidate(f"reinvest_fix_preview_{session['user']}")
 
         log_action(
             session["user"],
             (
                 "Applied retroactive reinvestment profit fix: "
-                f"{positions_corrected} positions, {users_affected} users, {rows_deleted} duplicate rows removed"
+                f"{positions_corrected} positions, {users_affected} users, {rows_deleted} duplicate rows removed, "
+                f"{dilution_positions} dilution correction(s)"
             ),
             positions_corrected,
             "Retroactive Reinvestment Fix",
@@ -5718,8 +5872,8 @@ def retroactive_reinvestment_profit_fix():
 
         if positions_corrected > 0:
             flash(
-                f"Reinvestment profit correction complete: {positions_corrected} position(s) fixed across "
-                f"{users_affected} user(s).",
+                f"Reinvestment correction complete: {positions_corrected} position(s) fixed across "
+                f"{users_affected} user(s), including {dilution_positions} dilution fix(es).",
                 "success",
             )
         else:
@@ -5742,6 +5896,7 @@ def preview_reinvestment_profit_fix():
         samples = summary.get("samples", [])
         preview_rows = summary.get("preview_rows", [])
         total_value_fix = summary.get("total_value_fix", 0.0)
+        dilution_positions = summary.get("dilution_positions", 0)
 
         cache.set(
             f"reinvest_fix_preview_{session['user']}",
@@ -5751,6 +5906,7 @@ def preview_reinvestment_profit_fix():
                 "users_affected": users_affected,
                 "rows_deleted": rows_deleted,
                 "total_value_fix": round(float(total_value_fix), 2),
+                "dilution_positions": int(dilution_positions),
                 "rows": preview_rows,
             },
             ttl=SheetCache.SHORT_TTL,
@@ -5759,7 +5915,8 @@ def preview_reinvestment_profit_fix():
         if positions_corrected > 0:
             preview_msg = (
                 f"Preview: {positions_corrected} position(s) across {users_affected} user(s) would be corrected; "
-                f"{rows_deleted} duplicate row(s) would be removed; net value correction ${total_value_fix:.2f}."
+                f"{rows_deleted} duplicate row(s) would be removed; {dilution_positions} dilution fix(es); "
+                f"net value correction ${total_value_fix:.2f}."
             )
             if samples:
                 preview_msg += " Sample: " + " | ".join(samples)
