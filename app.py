@@ -2350,10 +2350,9 @@ def _infer_buy_net_worth(company_history, buy_dt, current_nw):
 def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
     """Retroactively normalize stock holdings after historical reinvest bugs.
 
-     For each (user, company), this does two things:
-     1) consolidates duplicate holding rows while preserving current value,
-     2) when confidence is high, replays multi-buy growth expectation from logs
-         and corrects diluted profit caused by historical reinvest averaging.
+    For each (user, company), this replays multi-buy expected growth from logs
+    (when confidence is high) and corrects diluted profit caused by historical
+    reinvest averaging.
 
     Args:
         dry_run (bool): If True, compute and return impact summary without writes.
@@ -2363,7 +2362,6 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
         dict: {
             "positions_corrected": int,
             "users_affected": int,
-            "rows_deleted": int,
             "rows_touched": int,
             "samples": list[str],
             "preview_rows": list[dict],
@@ -2393,7 +2391,6 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
         grouped.setdefault((username, company), []).append((row_idx, invested, entry_nw))
 
     updates = []
-    rows_to_delete = []
     users_affected = set()
     positions_corrected = 0
     sample_lines = []
@@ -2412,8 +2409,9 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
         if not valid_rows:
             continue
 
-        total_invested = sum(inv for (_, inv, _) in valid_rows)
-        actual_current_value = sum(_net_value_for_position(inv, nw, current_nw) for (_, inv, nw) in valid_rows)
+        first_idx, first_inv, first_nw = valid_rows[0]
+        total_invested = first_inv
+        actual_current_value = _net_value_for_position(first_inv, first_nw, current_nw)
 
         expected_current_value = actual_current_value
         replay_confidence = "none"
@@ -2467,7 +2465,6 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
                     if lot_amount > 0 and lot_nw > 0
                 )
 
-        first_idx, first_inv, first_nw = valid_rows[0]
         current_value_before = _net_value_for_position(first_inv, first_nw, current_nw)
 
         deviation_amount = round(expected_current_value - actual_current_value, 2)
@@ -2483,31 +2480,27 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
 
         current_value_after = _net_value_for_position(total_invested, corrected_entry_nw, current_nw)
         value_fix_amount = round(current_value_after - current_value_before, 2)
-        invested_changed = abs(first_inv - total_invested) > 0.0001
         entry_changed = abs(first_nw - corrected_entry_nw) > 0.0001
-        needs_consolidation = len(valid_rows) > 1
-
-        actionable = invested_changed or entry_changed or needs_consolidation
-        include_in_preview = replay_possible or len(buy_logs) >= 2 or needs_consolidation
+        actionable = entry_changed and replay_method == "dilution-fix" and replay_confidence == "high"
+        include_in_preview = len(buy_logs) >= 2 or replay_possible
 
         status = "actionable" if actionable else "review-needed"
         status_reason = ""
         if actionable:
-            if replay_method == "dilution-fix":
-                status_reason = "High-confidence dilution deviation detected."
-            elif needs_consolidation:
-                status_reason = "Duplicate holding rows need consolidation."
-            else:
-                status_reason = "Entry net-worth needs normalization."
+            status_reason = "High-confidence reinvest dilution detected and fixable."
         else:
             if len(buy_logs) < 2:
                 status_reason = "Not enough buy events to evaluate reinvest dilution."
+            elif abs(sum(item["amount"] for item in buy_logs) - total_invested) > 0.05:
+                status_reason = "Buy-log total does not match current invested principal."
             elif replay_confidence != "high":
                 status_reason = "Insufficient date confidence for exact replay."
             elif has_sell:
                 status_reason = "Sell history present; manual review recommended."
+            elif deviation_amount <= 0.01:
+                status_reason = "No measurable dilution deviation found."
             else:
-                status_reason = "No meaningful deviation detected."
+                status_reason = "Dilution deviation detected but not safely auto-fixable."
 
         if include_in_preview:
             candidates_reviewed += 1
@@ -2518,7 +2511,6 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
                 "username": username,
                 "company": company,
                 "rows_merged": len(valid_rows),
-                "duplicates_removed": max(0, len(valid_rows) - 1),
                 "invested_before": round(first_inv, 2),
                 "invested_after": round(total_invested, 2),
                 "invested_delta": round(total_invested - first_inv, 2),
@@ -2545,9 +2537,6 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
             {"range": f"D{first_idx}", "values": [[round(corrected_entry_nw, 4)]]},
         ])
 
-        for dup_idx, _, _ in valid_rows[1:]:
-            rows_to_delete.append(dup_idx)
-
         users_affected.add(username)
         positions_corrected += 1
         total_value_fix = round(total_value_fix + value_fix_amount, 2)
@@ -2560,10 +2549,6 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
     if updates and not dry_run:
         retry_with_backoff(lambda: stock_holdings_sheet.batch_update(updates))
 
-    if rows_to_delete and not dry_run:
-        for idx in sorted(set(rows_to_delete), reverse=True):
-            retry_with_backoff(lambda row_idx=idx: stock_holdings_sheet.delete_rows(row_idx))
-
     if not dry_run:
         cache.invalidate("all_stock_holdings_raw")
         cache.invalidate_pattern("holdings_")
@@ -2572,7 +2557,6 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
     return {
         "positions_corrected": positions_corrected,
         "users_affected": len(users_affected),
-        "rows_deleted": len(set(rows_to_delete)),
         "rows_touched": (len(updates) // 2),
         "samples": sample_lines,
         "preview_rows": preview_rows,
@@ -5890,7 +5874,6 @@ def retroactive_reinvestment_profit_fix():
         summary = normalize_reinvestment_profit_data()
         positions_corrected = summary["positions_corrected"]
         users_affected = summary["users_affected"]
-        rows_deleted = summary["rows_deleted"]
         dilution_positions = summary.get("dilution_positions", 0)
         cache.invalidate(f"reinvest_fix_preview_{session['user']}")
 
@@ -5898,7 +5881,7 @@ def retroactive_reinvestment_profit_fix():
             session["user"],
             (
                 "Applied retroactive reinvestment profit fix: "
-                f"{positions_corrected} positions, {users_affected} users, {rows_deleted} duplicate rows removed, "
+                f"{positions_corrected} positions, {users_affected} users, "
                 f"{dilution_positions} dilution correction(s)"
             ),
             positions_corrected,
@@ -5927,7 +5910,6 @@ def preview_reinvestment_profit_fix():
         summary = normalize_reinvestment_profit_data(dry_run=True, sample_limit=8)
         positions_corrected = summary["positions_corrected"]
         users_affected = summary["users_affected"]
-        rows_deleted = summary["rows_deleted"]
         samples = summary.get("samples", [])
         preview_rows = summary.get("preview_rows", [])
         total_value_fix = summary.get("total_value_fix", 0.0)
@@ -5941,7 +5923,6 @@ def preview_reinvestment_profit_fix():
                 "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "positions_corrected": positions_corrected,
                 "users_affected": users_affected,
-                "rows_deleted": rows_deleted,
                 "total_value_fix": round(float(total_value_fix), 2),
                 "dilution_positions": int(dilution_positions),
                 "candidates_reviewed": int(candidates_reviewed),
@@ -5954,7 +5935,7 @@ def preview_reinvestment_profit_fix():
         if positions_corrected > 0:
             preview_msg = (
                 f"Preview: {positions_corrected} position(s) across {users_affected} user(s) would be corrected; "
-                f"{rows_deleted} duplicate row(s) would be removed; {dilution_positions} dilution fix(es); "
+                f"{dilution_positions} dilution fix(es); "
                 f"{candidates_reviewed} candidate position(s) reviewed ({review_needed_positions} need manual review); "
                 f"net value correction ${total_value_fix:.2f}."
             )
