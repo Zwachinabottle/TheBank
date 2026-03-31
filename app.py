@@ -6,6 +6,7 @@ from datetime import datetime
 from datetime import timedelta
 import time
 import re
+import math
 from threading import Lock, Thread
 
 app = Flask(__name__, static_folder='images')
@@ -410,6 +411,39 @@ def get_teacher_pin():
         pin = "4444"
     cache.set(cache_key, pin, ttl=SheetCache.LONG_TTL)
     return pin
+
+
+def get_investment_outlier_pivot():
+    """Read the investment outlier pivot from SystemConfig (column H).
+    Falls back to 5.0 if unset or invalid."""
+    cache_key = "investment_outlier_pivot"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    pivot = 5.0
+    try:
+        def fetch():
+            r = sheet.worksheet("Reserve")
+            config_cell = r.find("SystemConfig", in_column=1)
+            if not config_cell:
+                return 5.0
+            row = r.row_values(config_cell.row)
+            raw = row[7] if len(row) > 7 else ""
+            try:
+                parsed = float(raw)
+                return parsed if parsed > 0 else 5.0
+            except (ValueError, TypeError):
+                return 5.0
+
+        pivot = float(retry_with_backoff(fetch))
+        if pivot <= 0:
+            pivot = 5.0
+    except Exception:
+        pivot = 5.0
+
+    cache.set(cache_key, pivot, ttl=SheetCache.LONG_TTL)
+    return pivot
 
 
 def get_interest_rate():
@@ -1984,6 +2018,30 @@ def _parse_nw(raw):
         return 0.0
 
 
+def _compress_investment_ratio_outliers(ratio, max_ratio, pivot=5.0):
+    """Compress extreme growth ratios so very large outliers don't dominate.
+
+    Formula:
+      if ratio <= pivot: keep as-is
+      else: pivot + log(ratio / pivot) / log(max_ratio / pivot) * pivot
+    """
+    r = float(ratio or 0.0)
+    max_r = float(max_ratio or 0.0)
+    p = float(pivot or 5.0)
+
+    if r <= 0:
+        return 0.0
+    if r <= p or max_r <= p:
+        return r
+
+    denominator = math.log(max_r / p)
+    if abs(denominator) <= 1e-12:
+        return r
+
+    compressed = p + (math.log(r / p) / denominator) * p
+    return max(p, min(p * 2.0, compressed))
+
+
 def get_investments_data():
     """
     Parse the Investments sheet and return structured company + meta data.
@@ -2084,7 +2142,7 @@ def get_investments_data():
         current_inflation = str(inflation_row[current_col]).strip()
 
     # Parse companies: every row from row 3 onward that has a name in col A
-    companies = []
+    parsed_companies = []
     for row in company_rows:
         name = str(row[0]).strip() if row else ""
         if not name or name.lower() in ("inflation", "currentweek"):
@@ -2112,16 +2170,34 @@ def get_investments_data():
             if parsed_limit > 0:
                 entity_limit = round(parsed_limit, 2)
 
-        change_pct = round((current_nw - prev_nw) / prev_nw * 100, 2) if prev_nw > 0 else 0.0
-
-        companies.append({
+        parsed_companies.append({
             "name":         name,
             "netWorth":     current_nw,
             "prevNetWorth": prev_nw,
-            "changePct":    change_pct,
             "history":      history,
             "entityLimit":  entity_limit,
         })
+
+    ratios = [
+        company["netWorth"] / company["prevNetWorth"]
+        for company in parsed_companies
+        if company["prevNetWorth"] > 0
+    ]
+    outlier_pivot = get_investment_outlier_pivot()
+    max_ratio = max(max(ratios), outlier_pivot) if ratios else outlier_pivot
+
+    companies = []
+    for company in parsed_companies:
+        prev_nw = company["prevNetWorth"]
+        current_nw = company["netWorth"]
+        if prev_nw > 0:
+            ratio = current_nw / prev_nw
+            display_ratio = _compress_investment_ratio_outliers(ratio, max_ratio, pivot=outlier_pivot)
+            change_pct = round((display_ratio - 1.0) * 100, 2)
+        else:
+            change_pct = 0.0
+
+        companies.append({**company, "changePct": change_pct})
 
     result = {
         "companies":   companies,
@@ -2163,7 +2239,7 @@ def _parse_money_value(value):
         return 0.0
 
 
-def _net_value_for_position(invested_amount, entry_net_worth, current_net_worth):
+def _net_value_for_position(invested_amount, entry_net_worth, current_net_worth, ratio_ceiling=None, pivot=None):
     invested = float(invested_amount or 0)
     entry_nw = float(entry_net_worth or 0)
     current_nw = float(current_net_worth or 0)
@@ -2171,10 +2247,31 @@ def _net_value_for_position(invested_amount, entry_net_worth, current_net_worth)
     if invested <= 0 or entry_nw <= 0 or current_nw <= 0:
         return 0.0
 
-    gross_value = invested * (current_nw / entry_nw)
+    raw_ratio = current_nw / entry_nw
+    pivot_value = float(pivot if pivot is not None else get_investment_outlier_pivot())
+    effective_ratio = _compress_investment_ratio_outliers(
+        raw_ratio,
+        ratio_ceiling or raw_ratio,
+        pivot=pivot_value,
+    )
+    gross_value = invested * effective_ratio
     gross_profit = gross_value - invested
     net_profit = (gross_profit * 0.95) if gross_profit > 0 else gross_profit
     return invested + net_profit
+
+
+def _max_ratio_from_position_rows(rows, current_net_worth_by_company):
+    """Return max raw growth ratio across position rows for compression scaling."""
+    max_ratio = 0.0
+    for row in rows:
+        company = str(row.get("Company", "")).strip()
+        if not company:
+            continue
+        current_nw = _parse_money_value(current_net_worth_by_company.get(company, 0))
+        entry_nw = _parse_money_value(row.get("NetWorthAtInvestment", 0))
+        if current_nw > 0 and entry_nw > 0:
+            max_ratio = max(max_ratio, current_nw / entry_nw)
+    return max(max_ratio, 5.0)
 
 
 def _entry_net_worth_from_net_value(total_invested, total_net_value, current_net_worth):
@@ -2213,6 +2310,9 @@ def get_user_investment_holdings(username, current_net_worth_by_company=None):
 
     all_rows = get_all_stock_holdings_raw()
     user_rows = [r for r in all_rows if r.get("Username") == username]
+    ratio_ceiling = None
+    if current_net_worth_by_company:
+        ratio_ceiling = _max_ratio_from_position_rows(user_rows, current_net_worth_by_company)
 
     company_map = {}
     for r in user_rows:
@@ -2248,7 +2348,12 @@ def get_user_investment_holdings(username, current_net_worth_by_company=None):
         if total_invested > 0 and current_nw and current_nw > 0:
             total_net_value = 0.0
             for invested, entry_nw in company_data["rows"]:
-                total_net_value += _net_value_for_position(invested, entry_nw, current_nw)
+                total_net_value += _net_value_for_position(
+                    invested,
+                    entry_nw,
+                    current_nw,
+                    ratio_ceiling=ratio_ceiling,
+                )
             company_data["NetWorthAtInvestment"] = _entry_net_worth_from_net_value(
                 total_invested,
                 total_net_value,
@@ -2701,18 +2806,28 @@ def invest_in_company(username, company_name, amount):
             matching_rows = []
             existing_total_invested = 0.0
             existing_total_net_value = 0.0
+            lot_rows = []
 
             for idx, row in enumerate(all_rows, start=2):
                 if row.get("Username") == username and row.get("Company") == company_name:
                     invested = _parse_money_value(row.get("InvestedAmount", 0))
                     entry_nw = _parse_money_value(row.get("NetWorthAtInvestment", 0))
                     existing_total_invested += invested
+                    lot_rows.append((invested, entry_nw))
+                    matching_rows.append(idx)
+
+            ratio_ceiling = 5.0
+            if lot_rows:
+                raw_ratios = [company["netWorth"] / entry_nw for _, entry_nw in lot_rows if entry_nw > 0]
+                if raw_ratios:
+                    ratio_ceiling = max(max(raw_ratios), 5.0)
+                for invested, entry_nw in lot_rows:
                     existing_total_net_value += _net_value_for_position(
                         invested,
                         entry_nw,
                         company["netWorth"],
+                        ratio_ceiling=ratio_ceiling,
                     )
-                    matching_rows.append(idx)
 
             if matching_rows:
                 new_total_invested = round(existing_total_invested + amount, 4)
@@ -2762,7 +2877,8 @@ def divest_from_company(username, company_name, withdraw_amount):
         if company["netWorth"] <= 0:
             return "no_net_worth"
 
-        holdings = get_user_investment_holdings(username, {company_name: company["netWorth"]})
+        company_nw_map = {c["name"]: c["netWorth"] for c in data["companies"]}
+        holdings = get_user_investment_holdings(username, company_nw_map)
         holding  = next((h for h in holdings if h.get("Company") == company_name), None)
 
         if not holding:
@@ -2771,11 +2887,16 @@ def divest_from_company(username, company_name, withdraw_amount):
         # Current value of their entire stake (net value after 5% bank fee on profits)
         entry_nw = holding["NetWorthAtInvestment"]
         invested = holding["InvestedAmount"]
-        gross_value = invested * (company["netWorth"] / entry_nw) if entry_nw > 0 else 0.0
-        gross_profit = gross_value - invested
-        # Apply 5% bank fee to profits only
-        net_profit = (gross_profit * 0.95) if gross_profit > 0 else gross_profit
-        current_value = round(invested + net_profit, 2)
+        ratio_ceiling = _max_ratio_from_position_rows(holdings, company_nw_map)
+        current_value = round(
+            _net_value_for_position(
+                invested,
+                entry_nw,
+                company["netWorth"],
+                ratio_ceiling=ratio_ceiling,
+            ),
+            2,
+        )
 
         if withdraw_amount > current_value + 0.005:  # small float tolerance
             return "not_enough_investment"
@@ -4280,6 +4401,7 @@ def federal_reserve():
     weeks_remaining = get_weeks_until_project_end()
     personal_to_company_rate = get_personal_to_company_rate()
     teacher_pin = get_teacher_pin()
+    investment_outlier_pivot = get_investment_outlier_pivot()
     all_ads = get_all_ads()
 
     # Investment week info for the settings panel
@@ -4303,6 +4425,7 @@ def federal_reserve():
                          weeks_remaining=weeks_remaining,
                          personal_to_company_rate=personal_to_company_rate,
                          teacher_pin=teacher_pin,
+                         investment_outlier_pivot=investment_outlier_pivot,
                          all_ads=all_ads,
                          inv_all_weeks=inv_all_weeks,
                          inv_current_week=inv_current_week,
@@ -4595,11 +4718,11 @@ def save_system_setting():
                 row_num = config_row.row
             else:
                 # Create config row
-                fed_sheet.append_row(["SystemConfig", "", "", "", "", "", ""])
+                fed_sheet.append_row(["SystemConfig", "", "", "", "", "", "", ""])
                 row_num = len(fed_sheet.get_all_values())
         except:
             # If not found, append new row
-            fed_sheet.append_row(["SystemConfig", "", "", "", "", "", ""])
+            fed_sheet.append_row(["SystemConfig", "", "", "", "", "", "", ""])
             row_num = len(fed_sheet.get_all_values())
         
         # Map settings to columns
@@ -4610,7 +4733,8 @@ def save_system_setting():
             "card_prefix": 4,       # Column D
             "max_interest": 5,      # Column E
             "min_interest": 6,      # Column F
-            "reserve_requirement": 7 # Column G
+            "reserve_requirement": 7, # Column G
+            "investment_outlier_pivot": 8 # Column H
         }
         
         if setting_type == "project_end_date":
@@ -4630,6 +4754,14 @@ def save_system_setting():
                 return jsonify({"success": True, "message": f"Personal→Company rate set to {rate:.4f}"})
             except ValueError:
                 return jsonify({"success": False, "message": "Invalid rate value"})
+
+        if setting_type == "investment_outlier_pivot":
+            try:
+                pivot = float(value)
+                if pivot <= 0:
+                    return jsonify({"success": False, "message": "Pivot must be greater than zero"})
+            except ValueError:
+                return jsonify({"success": False, "message": "Invalid pivot value"})
         
         if setting_type not in column_map:
             return jsonify({"success": False, "message": "Invalid setting type"})
@@ -4641,6 +4773,7 @@ def save_system_setting():
         # Invalidate cache
         cache.invalidate_pattern("federal")
         cache.invalidate_pattern("system_config")
+        cache.invalidate("investment_outlier_pivot")
         if setting_type == "teacher_pin":
             cache.invalidate("teacher_pin")
         
@@ -5632,21 +5765,24 @@ def stocks():
     balance      = get_user_balance(username)
     fund_balance = get_investment_fund_balance(username)
 
+    ratio_ceiling = _max_ratio_from_position_rows(holdings, company_nw_map)
+
+    # Attach current value + P&L with the same compressed ratio context used by backend checks.
+    portfolio_value = 0.0
+    for holding in holdings:
+        company_nw = company_nw_map.get(holding["Company"], 0)
+        current_value = _net_value_for_position(
+            holding.get("InvestedAmount", 0),
+            holding.get("NetWorthAtInvestment", 0),
+            company_nw,
+            ratio_ceiling=ratio_ceiling,
+        )
+        holding["CurrentValue"] = round(current_value, 2)
+        holding["PL"] = round(current_value - float(holding.get("InvestedAmount", 0) or 0), 2)
+        portfolio_value += current_value
+
     # Map company name → holding for template lookup
     holdings_map = {h["Company"]: h for h in holdings}
-
-    # Compute current portfolio value (each stake grows with net worth, minus 5% bank fee on profits)
-    portfolio_value = 0.0
-    for h in holdings:
-        company = next((c for c in inv_data["companies"] if c["name"] == h["Company"]), None)
-        if company and h["NetWorthAtInvestment"] > 0:
-            invested = h["InvestedAmount"]
-            gross_value = invested * (company["netWorth"] / h["NetWorthAtInvestment"])
-            gross_profit = gross_value - invested
-            # Apply 5% bank fee to profits only (no fee on losses)
-            net_profit = (gross_profit * 0.95) if gross_profit > 0 else gross_profit
-            net_value = invested + net_profit
-            portfolio_value += net_value
 
     return render_template(
         "stocks.html",
@@ -5974,12 +6110,16 @@ def api_stocks():
     company_nw_map = {c["name"]: c["netWorth"] for c in inv_data["companies"]}
     holdings = get_user_investment_holdings(username, company_nw_map)
     holdings_map = {h["Company"]: h for h in holdings}
+    ratio_ceiling = _max_ratio_from_position_rows(holdings, company_nw_map)
     result = []
     for c in inv_data["companies"]:
         h = holdings_map.get(c["name"], {})
         inv    = h.get("InvestedAmount", 0)
         nw_in  = h.get("NetWorthAtInvestment", 0)
-        cur_val = round(_net_value_for_position(inv, nw_in, c["netWorth"]), 2) if nw_in > 0 else 0.0
+        cur_val = round(
+            _net_value_for_position(inv, nw_in, c["netWorth"], ratio_ceiling=ratio_ceiling),
+            2,
+        ) if nw_in > 0 else 0.0
         result.append({
             "name":          c["name"],
             "netWorth":      c["netWorth"],

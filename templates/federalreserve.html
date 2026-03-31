@@ -2126,6 +2126,18 @@
                   <button type="submit" class="setting-save-btn">Set</button>
                 </form>
               </div>
+
+              <div class="setting-item">
+                <label class="setting-label">
+                  <span class="setting-name">Outlier Compression Pivot</span>
+                  <span class="setting-description">Threshold where ratio compression starts on investments (currently: {{ "%.2f"|format(investment_outlier_pivot or 5.0) }}x)</span>
+                </label>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <input type="number" id="investment-outlier-pivot" value="{{ "%.2f"|format(investment_outlier_pivot or 5.0) }}" step="0.1" min="0.1" class="setting-input" style="flex:1;">
+                  <span style="color: var(--text-muted); font-size: 12px;">x</span>
+                  <button onclick="saveSettings('investment_outlier_pivot')" class="setting-save-btn">Save</button>
+                </div>
+              </div>
             </div>
 
             <!-- Currency Exchange Rate (Full Width) -->
@@ -2546,6 +2558,14 @@
             return;
           }
           message = `Personal→Company exchange rate set to ${parseFloat(value).toFixed(4)}x`;
+          break;
+        case 'investment_outlier_pivot':
+          value = document.getElementById('investment-outlier-pivot').value;
+          if (!value || parseFloat(value) <= 0) {
+            alert('Outlier pivot must be greater than zero');
+            return;
+          }
+          message = `Investment outlier pivot set to ${parseFloat(value).toFixed(2)}x`;
           break;
       }
       
