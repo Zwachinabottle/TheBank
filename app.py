@@ -2155,30 +2155,69 @@ def get_all_stock_holdings_raw():
     return rows
 
 
-def get_user_investment_holdings(username):
-    """Return a list of {Company, InvestedAmount, NetWorthAtInvestment} for a user.
-    Combines multiple investments in the same company using weighted average."""
-    cache_key = f"holdings_{username}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+def _parse_money_value(value):
+    s = str(value or 0).replace("$", "").replace(",", "").strip()
+    try:
+        return float(s) if s else 0.0
+    except (ValueError, TypeError):
+        return 0.0
 
-    # Fetch from shared cache instead of hitting API per-user
+
+def _net_value_for_position(invested_amount, entry_net_worth, current_net_worth):
+    invested = float(invested_amount or 0)
+    entry_nw = float(entry_net_worth or 0)
+    current_nw = float(current_net_worth or 0)
+
+    if invested <= 0 or entry_nw <= 0 or current_nw <= 0:
+        return 0.0
+
+    gross_value = invested * (current_nw / entry_nw)
+    gross_profit = gross_value - invested
+    net_profit = (gross_profit * 0.95) if gross_profit > 0 else gross_profit
+    return invested + net_profit
+
+
+def _entry_net_worth_from_net_value(total_invested, total_net_value, current_net_worth):
+    invested = float(total_invested or 0)
+    net_value = float(total_net_value or 0)
+    current_nw = float(current_net_worth or 0)
+
+    if invested <= 0 or current_nw <= 0:
+        return 0.0
+    if net_value <= 0:
+        return round(current_nw, 4)
+
+    ratio = net_value / invested
+    if abs(ratio - 1.0) <= 1e-9:
+        return round(current_nw, 4)
+
+    if ratio > 1.0:
+        denom = ratio - 0.05
+        if denom <= 1e-9:
+            return round(current_nw, 4)
+        return round((0.95 * current_nw) / denom, 4)
+
+    return round((invested * current_nw) / net_value, 4)
+
+
+def get_user_investment_holdings(username, current_net_worth_by_company=None):
+    """Return a list of {Company, InvestedAmount, NetWorthAtInvestment} for a user.
+    If current_net_worth_by_company is provided, aggregate entries in a way that
+    preserves the user's current net value after the 5% profit fee logic."""
+    use_cache = current_net_worth_by_company is None
+    cache_key = f"holdings_{username}"
+    if use_cache:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     all_rows = get_all_stock_holdings_raw()
     user_rows = [r for r in all_rows if r.get("Username") == username]
 
-    # Parse and combine duplicates by company
     company_map = {}
     for r in user_rows:
-        try:
-            # Handle both plain numbers and formatted currency strings (e.g., "$4,150.00")
-            invested_str = str(r.get("InvestedAmount", 0) or 0).replace("$", "").replace(",", "").strip()
-            nw_str = str(r.get("NetWorthAtInvestment", 0) or 0).replace("$", "").replace(",", "").strip()
-            invested = float(invested_str) if invested_str else 0.0
-            entry_nw = float(nw_str) if nw_str else 0.0
-        except (ValueError, TypeError):
-            invested = 0.0
-            entry_nw = 0.0
+        invested = _parse_money_value(r.get("InvestedAmount", 0))
+        entry_nw = _parse_money_value(r.get("NetWorthAtInvestment", 0))
 
         company = r.get("Company", "").strip()
         if not company:
@@ -2189,24 +2228,43 @@ def get_user_investment_holdings(username):
                 "Company": company,
                 "InvestedAmount": 0.0,
                 "NetWorthAtInvestment": 0.0,
-                "total_weight": 0.0  # sum of (invested * entry_nw) for weighted average
+                "weighted_entry_total": 0.0,
+                "rows": []
             }
 
         company_map[company]["InvestedAmount"] += invested
-        company_map[company]["total_weight"] += invested * entry_nw
+        company_map[company]["weighted_entry_total"] += invested * entry_nw
+        company_map[company]["rows"].append((invested, entry_nw))
 
-    # Calculate weighted average entry net worth for each company
     holdings = []
     for company_data in company_map.values():
         total_invested = company_data["InvestedAmount"]
-        if total_invested > 0:
-            company_data["NetWorthAtInvestment"] = round(
-                company_data["total_weight"] / total_invested, 4
+
+        company_name = company_data["Company"]
+        current_nw = None
+        if current_net_worth_by_company:
+            current_nw = current_net_worth_by_company.get(company_name)
+
+        if total_invested > 0 and current_nw and current_nw > 0:
+            total_net_value = 0.0
+            for invested, entry_nw in company_data["rows"]:
+                total_net_value += _net_value_for_position(invested, entry_nw, current_nw)
+            company_data["NetWorthAtInvestment"] = _entry_net_worth_from_net_value(
+                total_invested,
+                total_net_value,
+                current_nw,
             )
-        del company_data["total_weight"]  # Remove helper field
+        elif total_invested > 0:
+            company_data["NetWorthAtInvestment"] = round(
+                company_data["weighted_entry_total"] / total_invested, 4
+            )
+
+        del company_data["weighted_entry_total"]
+        del company_data["rows"]
         holdings.append(company_data)
 
-    cache.set(cache_key, holdings, ttl=SheetCache.SHORT_TTL)
+    if use_cache:
+        cache.set(cache_key, holdings, ttl=SheetCache.SHORT_TTL)
     return holdings
 
 
@@ -2338,26 +2396,41 @@ def invest_in_company(username, company_name, amount):
         add_investment_log(username, "BuyInvestment", company_name, round(amount, 2),
                            f"Invested ${amount:.2f} in {company_name}")
 
-        # Update holdings (weighted average if already invested)
+        # Update holdings while preserving existing net value + profit history
         def update_holdings():
             all_rows = stock_holdings_sheet.get_all_records()
+            matching_rows = []
+            existing_total_invested = 0.0
+            existing_total_net_value = 0.0
+
             for idx, row in enumerate(all_rows, start=2):
                 if row.get("Username") == username and row.get("Company") == company_name:
-                    # Handle formatted currency strings (e.g., "$4,150.00")
-                    invested_str = str(row.get("InvestedAmount", 0) or 0).replace("$", "").replace(",", "").strip()
-                    nw_str = str(row.get("NetWorthAtInvestment", 0) or 0).replace("$", "").replace(",", "").strip()
-                    existing_inv = float(invested_str) if invested_str else 0.0
-                    existing_nw = float(nw_str) if nw_str else 0.0
-                    new_inv       = existing_inv + amount
-                    # Weighted average of entry net worth
-                    new_entry_nw  = round(
-                        (existing_nw * existing_inv + company["netWorth"] * amount) / new_inv, 4
+                    invested = _parse_money_value(row.get("InvestedAmount", 0))
+                    entry_nw = _parse_money_value(row.get("NetWorthAtInvestment", 0))
+                    existing_total_invested += invested
+                    existing_total_net_value += _net_value_for_position(
+                        invested,
+                        entry_nw,
+                        company["netWorth"],
                     )
-                    stock_holdings_sheet.batch_update([
-                        {"range": f"C{idx}", "values": [[round(new_inv, 4)]]},
-                        {"range": f"D{idx}", "values": [[new_entry_nw]]},
-                    ])
-                    return
+                    matching_rows.append(idx)
+
+            if matching_rows:
+                new_total_invested = round(existing_total_invested + amount, 4)
+                new_total_net_value = existing_total_net_value + amount
+                new_entry_nw = _entry_net_worth_from_net_value(
+                    new_total_invested,
+                    new_total_net_value,
+                    company["netWorth"],
+                )
+                stock_holdings_sheet.batch_update([
+                    {"range": f"C{matching_rows[0]}", "values": [[new_total_invested]]},
+                    {"range": f"D{matching_rows[0]}", "values": [[new_entry_nw]]},
+                ])
+                for idx in reversed(matching_rows[1:]):
+                    stock_holdings_sheet.delete_rows(idx)
+                return
+
             stock_holdings_sheet.append_row(
                 [username, company_name, round(amount, 4), round(company["netWorth"], 4)]
             )
@@ -2390,7 +2463,7 @@ def divest_from_company(username, company_name, withdraw_amount):
         if company["netWorth"] <= 0:
             return "no_net_worth"
 
-        holdings = get_user_investment_holdings(username)
+        holdings = get_user_investment_holdings(username, {company_name: company["netWorth"]})
         holding  = next((h for h in holdings if h.get("Company") == company_name), None)
 
         if not holding:
@@ -2440,7 +2513,10 @@ def divest_from_company(username, company_name, withdraw_amount):
                     stock_holdings_sheet.delete_rows(idx)
             else:
                 # Keep only the first row with the remaining investment, delete others
-                stock_holdings_sheet.update_cell(matching_rows[0], 3, remaining_invested)
+                stock_holdings_sheet.batch_update([
+                    {"range": f"C{matching_rows[0]}", "values": [[remaining_invested]]},
+                    {"range": f"D{matching_rows[0]}", "values": [[entry_nw]]},
+                ])
                 for idx in reversed(matching_rows[1:]):
                     stock_holdings_sheet.delete_rows(idx)
 
@@ -5250,7 +5326,8 @@ def stocks():
     if not inv_data["companies"]:
         cache.invalidate("investments_data", "investments_data_v2")
         inv_data = get_investments_data()
-    holdings     = get_user_investment_holdings(username)
+    company_nw_map = {c["name"]: c["netWorth"] for c in inv_data["companies"]}
+    holdings     = get_user_investment_holdings(username, company_nw_map)
     balance      = get_user_balance(username)
     fund_balance = get_investment_fund_balance(username)
 
@@ -5509,14 +5586,15 @@ def api_stocks():
         return jsonify({"error": "Not logged in"}), 401
     username = session["user"]
     inv_data = get_investments_data()
-    holdings = get_user_investment_holdings(username)
+    company_nw_map = {c["name"]: c["netWorth"] for c in inv_data["companies"]}
+    holdings = get_user_investment_holdings(username, company_nw_map)
     holdings_map = {h["Company"]: h for h in holdings}
     result = []
     for c in inv_data["companies"]:
         h = holdings_map.get(c["name"], {})
         inv    = h.get("InvestedAmount", 0)
         nw_in  = h.get("NetWorthAtInvestment", 0)
-        cur_val = round(inv * (c["netWorth"] / nw_in), 2) if nw_in > 0 else 0.0
+        cur_val = round(_net_value_for_position(inv, nw_in, c["netWorth"]), 2) if nw_in > 0 else 0.0
         result.append({
             "name":          c["name"],
             "netWorth":      c["netWorth"],
