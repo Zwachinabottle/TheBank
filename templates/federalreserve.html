@@ -1885,6 +1885,68 @@
                 </form>
               </div>
 
+              <!-- Retroactive Reinvestment Profit Fix -->
+              <div style="margin-bottom: 20px; padding: 16px; background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.2); border-radius: var(--rounded);">
+                <h4 style="margin: 0 0 8px 0; color: #22c55e;">📈 Retroactive Reinvestment Profit Fix</h4>
+                <p style="margin: 0 0 12px 0; font-size: 13px; color: var(--text-muted);">
+                  Rebuilds stock holding rows so historical reinvestments no longer distort profit display.
+                  Safe to run multiple times; it only changes rows that need normalization.
+                </p>
+                <form method="POST" action="/preview_reinvestment_profit_fix" style="margin-bottom: 10px;">
+                  <button type="submit" style="width: 100%; background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.45); color: #22c55e;">Preview Impact (No Changes)</button>
+                </form>
+                <form method="POST" action="/retroactive_reinvestment_profit_fix" onsubmit="return confirm('Apply retroactive reinvestment profit fix now?');">
+                  <button type="submit" style="width: 100%; background: rgba(34,197,94,0.15); border: 1px solid #22c55e; color: #22c55e;">Run Reinvestment Profit Fix</button>
+                </form>
+
+                {% if reinvest_preview %}
+                <div style="margin-top: 12px; padding: 12px; border: 1px solid rgba(34,197,94,0.25); border-radius: 10px; background: rgba(15,23,42,0.35);">
+                  <p style="margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted);">
+                    Preview generated: {{ reinvest_preview.generated_at }}
+                  </p>
+                  <p style="margin: 0 0 10px 0; font-size: 13px; color: var(--text);">
+                    <strong>{{ reinvest_preview.positions_corrected }}</strong> position(s),
+                    <strong>{{ reinvest_preview.users_affected }}</strong> user(s),
+                    <strong>{{ reinvest_preview.rows_deleted }}</strong> duplicate row(s) removed,
+                    estimated value correction <strong>${{ "%.2f"|format(reinvest_preview.total_value_fix or 0) }}</strong>.
+                  </p>
+
+                  {% if reinvest_preview.rows %}
+                  <div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;">
+                    <table style="width: 100%; border-collapse: collapse; min-width: 860px;">
+                      <thead>
+                        <tr style="background: rgba(34,197,94,0.12);">
+                          <th style="text-align: left; padding: 8px;">User</th>
+                          <th style="text-align: left; padding: 8px;">Company</th>
+                          <th style="text-align: right; padding: 8px;">Rows Merged</th>
+                          <th style="text-align: right; padding: 8px;">Invested Before</th>
+                          <th style="text-align: right; padding: 8px;">Invested After</th>
+                          <th style="text-align: right; padding: 8px;">Fix Amount</th>
+                          <th style="text-align: right; padding: 8px;">Value Before</th>
+                          <th style="text-align: right; padding: 8px;">Value After</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in reinvest_preview.rows %}
+                        <tr style="border-top: 1px solid var(--border);">
+                          <td style="padding: 8px;">{{ row.username }}</td>
+                          <td style="padding: 8px;">{{ row.company }}</td>
+                          <td style="padding: 8px; text-align: right;">{{ row.rows_merged }}</td>
+                          <td style="padding: 8px; text-align: right;">${{ "%.2f"|format(row.invested_before or 0) }}</td>
+                          <td style="padding: 8px; text-align: right;">${{ "%.2f"|format(row.invested_after or 0) }}</td>
+                          <td style="padding: 8px; text-align: right; color: #22c55e;">${{ "%.2f"|format(row.value_fix_amount or 0) }}</td>
+                          <td style="padding: 8px; text-align: right;">${{ "%.2f"|format(row.current_value_before or 0) }}</td>
+                          <td style="padding: 8px; text-align: right;">${{ "%.2f"|format(row.current_value_after or 0) }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                  {% endif %}
+                </div>
+                {% endif %}
+              </div>
+
               <!-- Clear Investments Cache Section -->
               <div style="margin-bottom: 20px; padding: 16px; background: rgba(168,85,247,0.07); border: 1px solid rgba(168,85,247,0.2); border-radius: var(--rounded);">
                 <h4 style="margin: 0 0 8px 0; color: #a855f7;">🔄 Refresh Investment Data</h4>

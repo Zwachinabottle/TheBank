@@ -2268,6 +2268,134 @@ def get_user_investment_holdings(username, current_net_worth_by_company=None):
     return holdings
 
 
+def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
+    """Retroactively normalize stock holdings after historical reinvest bugs.
+
+    For each (user, company), this consolidates duplicate rows into one canonical
+    row while preserving the *current* net value under the 5% profit-fee model.
+    This avoids profit jumps caused by bad historical averaging when reinvesting.
+
+    Args:
+        dry_run (bool): If True, compute and return impact summary without writes.
+        sample_limit (int): Max number of affected position samples to return.
+
+    Returns:
+        dict: {
+            "positions_corrected": int,
+            "users_affected": int,
+            "rows_deleted": int,
+            "rows_touched": int,
+            "samples": list[str],
+            "preview_rows": list[dict],
+            "total_value_fix": float,
+        }
+    """
+    inv_data = get_investments_data()
+    current_nw_map = {c["name"]: float(c.get("netWorth", 0) or 0) for c in inv_data.get("companies", [])}
+
+    def fetch_rows():
+        return stock_holdings_sheet.get_all_records()
+
+    all_rows = retry_with_backoff(fetch_rows)
+
+    grouped = {}
+    for row_idx, row in enumerate(all_rows, start=2):
+        username = str(row.get("Username", "") or "").strip()
+        company = str(row.get("Company", "") or "").strip()
+        if not username or not company:
+            continue
+
+        invested = _parse_money_value(row.get("InvestedAmount", 0))
+        entry_nw = _parse_money_value(row.get("NetWorthAtInvestment", 0))
+        grouped.setdefault((username, company), []).append((row_idx, invested, entry_nw))
+
+    updates = []
+    rows_to_delete = []
+    users_affected = set()
+    positions_corrected = 0
+    sample_lines = []
+    preview_rows = []
+    total_value_fix = 0.0
+
+    for (username, company), rows in grouped.items():
+        current_nw = current_nw_map.get(company, 0.0)
+        if current_nw <= 0:
+            continue
+
+        valid_rows = [(idx, inv, nw) for (idx, inv, nw) in rows if inv > 0 and nw > 0]
+        if not valid_rows:
+            continue
+
+        total_invested = sum(inv for (_, inv, _) in valid_rows)
+        total_net_value = sum(_net_value_for_position(inv, nw, current_nw) for (_, inv, nw) in valid_rows)
+        corrected_entry_nw = _entry_net_worth_from_net_value(total_invested, total_net_value, current_nw)
+
+        first_idx, first_inv, first_nw = valid_rows[0]
+        current_value_before = _net_value_for_position(first_inv, first_nw, current_nw)
+        current_value_after = _net_value_for_position(total_invested, corrected_entry_nw, current_nw)
+        value_fix_amount = round(current_value_after - current_value_before, 2)
+        invested_changed = abs(first_inv - total_invested) > 0.0001
+        entry_changed = abs(first_nw - corrected_entry_nw) > 0.0001
+        needs_consolidation = len(valid_rows) > 1
+
+        if not (invested_changed or entry_changed or needs_consolidation):
+            continue
+
+        updates.extend([
+            {"range": f"C{first_idx}", "values": [[round(total_invested, 4)]]},
+            {"range": f"D{first_idx}", "values": [[round(corrected_entry_nw, 4)]]},
+        ])
+
+        for dup_idx, _, _ in valid_rows[1:]:
+            rows_to_delete.append(dup_idx)
+
+        users_affected.add(username)
+        positions_corrected += 1
+        total_value_fix = round(total_value_fix + value_fix_amount, 2)
+
+        if len(sample_lines) < max(1, int(sample_limit)):
+            sample_lines.append(
+                f"{username} / {company}: invested ${total_invested:.2f}, entry NW {corrected_entry_nw:.4f}, duplicates {max(0, len(valid_rows)-1)}"
+            )
+
+        preview_rows.append({
+            "username": username,
+            "company": company,
+            "rows_merged": len(valid_rows),
+            "duplicates_removed": max(0, len(valid_rows) - 1),
+            "invested_before": round(first_inv, 2),
+            "invested_after": round(total_invested, 2),
+            "invested_delta": round(total_invested - first_inv, 2),
+            "entry_nw_before": round(first_nw, 4),
+            "entry_nw_after": round(corrected_entry_nw, 4),
+            "current_value_before": round(current_value_before, 2),
+            "current_value_after": round(current_value_after, 2),
+            "value_fix_amount": value_fix_amount,
+        })
+
+    if updates and not dry_run:
+        retry_with_backoff(lambda: stock_holdings_sheet.batch_update(updates))
+
+    if rows_to_delete and not dry_run:
+        for idx in sorted(set(rows_to_delete), reverse=True):
+            retry_with_backoff(lambda row_idx=idx: stock_holdings_sheet.delete_rows(row_idx))
+
+    if not dry_run:
+        cache.invalidate("all_stock_holdings_raw")
+        cache.invalidate_pattern("holdings_")
+        cache.invalidate("investments_data", "investments_data_v2")
+
+    return {
+        "positions_corrected": positions_corrected,
+        "users_affected": len(users_affected),
+        "rows_deleted": len(set(rows_to_delete)),
+        "rows_touched": (len(updates) // 2),
+        "samples": sample_lines,
+        "preview_rows": preview_rows,
+        "total_value_fix": total_value_fix,
+    }
+
+
 def get_all_invest_funds_raw():
     """Return all rows from the InvestFunds sheet, shared across callers."""
     cache_key = "all_invest_funds_raw"
@@ -3988,6 +4116,7 @@ def federal_reserve():
     inv_all_weeks = inv_data["allWeeks"]
     inv_current_week = inv_data["currentWeek"]
     pending_fund_requests = get_pending_fund_requests()
+    reinvest_preview = cache.get(f"reinvest_fix_preview_{session['user']}")
 
     return render_template("federalreserve.html", 
                          data=data, 
@@ -4006,7 +4135,8 @@ def federal_reserve():
                          all_ads=all_ads,
                          inv_all_weeks=inv_all_weeks,
                          inv_current_week=inv_current_week,
-                         pending_fund_requests=pending_fund_requests)
+                         pending_fund_requests=pending_fund_requests,
+                         reinvest_preview=reinvest_preview)
 
 @app.route("/repair_user_data")
 @role_required("Banker")
@@ -5561,6 +5691,83 @@ def retroactive_fund_correction():
         flash(f"Retroactive correction applied: {corrections_applied} students corrected, ${total_corrected:.2f} total deducted (only actual investments).", "success")
     except Exception as e:
         flash(f"Error applying retroactive correction: {str(e)}", "error")
+
+    return redirect(url_for("federal_reserve"))
+
+
+@app.route("/retroactive_reinvestment_profit_fix", methods=["POST"])
+@role_required("Banker")
+def retroactive_reinvestment_profit_fix():
+    """Normalize historical reinvestment holdings to correct profit drift."""
+    try:
+        summary = normalize_reinvestment_profit_data()
+        positions_corrected = summary["positions_corrected"]
+        users_affected = summary["users_affected"]
+        rows_deleted = summary["rows_deleted"]
+        cache.invalidate(f"reinvest_fix_preview_{session['user']}")
+
+        log_action(
+            session["user"],
+            (
+                "Applied retroactive reinvestment profit fix: "
+                f"{positions_corrected} positions, {users_affected} users, {rows_deleted} duplicate rows removed"
+            ),
+            positions_corrected,
+            "Retroactive Reinvestment Fix",
+        )
+
+        if positions_corrected > 0:
+            flash(
+                f"Reinvestment profit correction complete: {positions_corrected} position(s) fixed across "
+                f"{users_affected} user(s).",
+                "success",
+            )
+        else:
+            flash("No reinvestment profit corrections were needed.", "info")
+    except Exception as e:
+        flash(f"Error applying reinvestment profit correction: {str(e)}", "error")
+
+    return redirect(url_for("federal_reserve"))
+
+
+@app.route("/preview_reinvestment_profit_fix", methods=["POST"])
+@role_required("Banker")
+def preview_reinvestment_profit_fix():
+    """Preview reinvestment profit normalization impact without changing data."""
+    try:
+        summary = normalize_reinvestment_profit_data(dry_run=True, sample_limit=8)
+        positions_corrected = summary["positions_corrected"]
+        users_affected = summary["users_affected"]
+        rows_deleted = summary["rows_deleted"]
+        samples = summary.get("samples", [])
+        preview_rows = summary.get("preview_rows", [])
+        total_value_fix = summary.get("total_value_fix", 0.0)
+
+        cache.set(
+            f"reinvest_fix_preview_{session['user']}",
+            {
+                "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "positions_corrected": positions_corrected,
+                "users_affected": users_affected,
+                "rows_deleted": rows_deleted,
+                "total_value_fix": round(float(total_value_fix), 2),
+                "rows": preview_rows,
+            },
+            ttl=SheetCache.SHORT_TTL,
+        )
+
+        if positions_corrected > 0:
+            preview_msg = (
+                f"Preview: {positions_corrected} position(s) across {users_affected} user(s) would be corrected; "
+                f"{rows_deleted} duplicate row(s) would be removed; net value correction ${total_value_fix:.2f}."
+            )
+            if samples:
+                preview_msg += " Sample: " + " | ".join(samples)
+            flash(preview_msg, "info")
+        else:
+            flash("Preview: no reinvestment profit corrections are needed.", "info")
+    except Exception as e:
+        flash(f"Error previewing reinvestment profit correction: {str(e)}", "error")
 
     return redirect(url_for("federal_reserve"))
 
