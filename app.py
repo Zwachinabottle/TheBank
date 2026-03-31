@@ -2400,6 +2400,8 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
     preview_rows = []
     total_value_fix = 0.0
     dilution_positions = 0
+    candidates_reviewed = 0
+    review_needed_positions = 0
 
     for (username, company), rows in grouped.items():
         current_nw = current_nw_map.get(company, 0.0)
@@ -2485,7 +2487,57 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
         entry_changed = abs(first_nw - corrected_entry_nw) > 0.0001
         needs_consolidation = len(valid_rows) > 1
 
-        if not (invested_changed or entry_changed or needs_consolidation):
+        actionable = invested_changed or entry_changed or needs_consolidation
+        include_in_preview = replay_possible or len(buy_logs) >= 2 or needs_consolidation
+
+        status = "actionable" if actionable else "review-needed"
+        status_reason = ""
+        if actionable:
+            if replay_method == "dilution-fix":
+                status_reason = "High-confidence dilution deviation detected."
+            elif needs_consolidation:
+                status_reason = "Duplicate holding rows need consolidation."
+            else:
+                status_reason = "Entry net-worth needs normalization."
+        else:
+            if len(buy_logs) < 2:
+                status_reason = "Not enough buy events to evaluate reinvest dilution."
+            elif replay_confidence != "high":
+                status_reason = "Insufficient date confidence for exact replay."
+            elif has_sell:
+                status_reason = "Sell history present; manual review recommended."
+            else:
+                status_reason = "No meaningful deviation detected."
+
+        if include_in_preview:
+            candidates_reviewed += 1
+            if not actionable:
+                review_needed_positions += 1
+
+            preview_rows.append({
+                "username": username,
+                "company": company,
+                "rows_merged": len(valid_rows),
+                "duplicates_removed": max(0, len(valid_rows) - 1),
+                "invested_before": round(first_inv, 2),
+                "invested_after": round(total_invested, 2),
+                "invested_delta": round(total_invested - first_inv, 2),
+                "entry_nw_before": round(first_nw, 4),
+                "entry_nw_after": round(corrected_entry_nw, 4),
+                "current_value_before": round(current_value_before, 2),
+                "current_value_after": round(current_value_after, 2),
+                "value_fix_amount": value_fix_amount,
+                "deviation_amount": deviation_amount,
+                "confidence": replay_confidence,
+                "method": replay_method,
+                "replay_possible": replay_possible,
+                "buy_count": len(buy_logs),
+                "actionable": actionable,
+                "status": status,
+                "status_reason": status_reason,
+            })
+
+        if not actionable:
             continue
 
         updates.extend([
@@ -2504,25 +2556,6 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
             sample_lines.append(
                 f"{username} / {company}: fix ${value_fix_amount:.2f}, confidence {replay_confidence}, method {replay_method}"
             )
-
-        preview_rows.append({
-            "username": username,
-            "company": company,
-            "rows_merged": len(valid_rows),
-            "duplicates_removed": max(0, len(valid_rows) - 1),
-            "invested_before": round(first_inv, 2),
-            "invested_after": round(total_invested, 2),
-            "invested_delta": round(total_invested - first_inv, 2),
-            "entry_nw_before": round(first_nw, 4),
-            "entry_nw_after": round(corrected_entry_nw, 4),
-            "current_value_before": round(current_value_before, 2),
-            "current_value_after": round(current_value_after, 2),
-            "value_fix_amount": value_fix_amount,
-            "deviation_amount": deviation_amount,
-            "confidence": replay_confidence,
-            "method": replay_method,
-            "replay_possible": replay_possible,
-        })
 
     if updates and not dry_run:
         retry_with_backoff(lambda: stock_holdings_sheet.batch_update(updates))
@@ -2545,6 +2578,8 @@ def normalize_reinvestment_profit_data(dry_run=False, sample_limit=8):
         "preview_rows": preview_rows,
         "total_value_fix": total_value_fix,
         "dilution_positions": dilution_positions,
+        "candidates_reviewed": candidates_reviewed,
+        "review_needed_positions": review_needed_positions,
     }
 
 
@@ -5897,6 +5932,8 @@ def preview_reinvestment_profit_fix():
         preview_rows = summary.get("preview_rows", [])
         total_value_fix = summary.get("total_value_fix", 0.0)
         dilution_positions = summary.get("dilution_positions", 0)
+        candidates_reviewed = summary.get("candidates_reviewed", 0)
+        review_needed_positions = summary.get("review_needed_positions", 0)
 
         cache.set(
             f"reinvest_fix_preview_{session['user']}",
@@ -5907,6 +5944,8 @@ def preview_reinvestment_profit_fix():
                 "rows_deleted": rows_deleted,
                 "total_value_fix": round(float(total_value_fix), 2),
                 "dilution_positions": int(dilution_positions),
+                "candidates_reviewed": int(candidates_reviewed),
+                "review_needed_positions": int(review_needed_positions),
                 "rows": preview_rows,
             },
             ttl=SheetCache.SHORT_TTL,
@@ -5916,6 +5955,7 @@ def preview_reinvestment_profit_fix():
             preview_msg = (
                 f"Preview: {positions_corrected} position(s) across {users_affected} user(s) would be corrected; "
                 f"{rows_deleted} duplicate row(s) would be removed; {dilution_positions} dilution fix(es); "
+                f"{candidates_reviewed} candidate position(s) reviewed ({review_needed_positions} need manual review); "
                 f"net value correction ${total_value_fix:.2f}."
             )
             if samples:

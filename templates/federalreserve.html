@@ -1909,16 +1909,20 @@
                     <strong>{{ reinvest_preview.users_affected }}</strong> user(s),
                     <strong>{{ reinvest_preview.rows_deleted }}</strong> duplicate row(s) removed,
                     <strong>{{ reinvest_preview.dilution_positions or 0 }}</strong> dilution fix(es),
+                    <strong>{{ reinvest_preview.candidates_reviewed or 0 }}</strong> candidate(s) reviewed,
+                    <strong>{{ reinvest_preview.review_needed_positions or 0 }}</strong> review-needed,
                     estimated value correction <strong>${{ "%.2f"|format(reinvest_preview.total_value_fix or 0) }}</strong>.
                   </p>
 
                   {% if reinvest_preview.rows %}
                   <div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;">
-                    <table style="width: 100%; border-collapse: collapse; min-width: 1080px;">
+                    <table style="width: 100%; border-collapse: collapse; min-width: 1240px;">
                       <thead>
                         <tr style="background: rgba(34,197,94,0.12);">
                           <th style="text-align: left; padding: 8px;">User</th>
                           <th style="text-align: left; padding: 8px;">Company</th>
+                          <th style="text-align: left; padding: 8px;">Action</th>
+                          <th style="text-align: left; padding: 8px;">Reason</th>
                           <th style="text-align: left; padding: 8px;">Method</th>
                           <th style="text-align: left; padding: 8px;">Confidence</th>
                           <th style="text-align: right; padding: 8px;">Rows Merged</th>
@@ -1935,6 +1939,8 @@
                         <tr style="border-top: 1px solid var(--border);">
                           <td style="padding: 8px;">{{ row.username }}</td>
                           <td style="padding: 8px;">{{ row.company }}</td>
+                          <td style="padding: 8px; color: {{ '#22c55e' if row.actionable else '#f59e0b' }};">{{ row.status or ('actionable' if row.actionable else 'review-needed') }}</td>
+                          <td style="padding: 8px; font-size: 12px; color: var(--text-muted);">{{ row.status_reason or '' }}</td>
                           <td style="padding: 8px;">{{ row.method or 'n/a' }}</td>
                           <td style="padding: 8px;">{{ row.confidence or 'n/a' }}</td>
                           <td style="padding: 8px; text-align: right;">{{ row.rows_merged }}</td>
