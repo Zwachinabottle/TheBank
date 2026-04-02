@@ -2274,6 +2274,18 @@ def _max_ratio_from_position_rows(rows, current_net_worth_by_company):
     return max(max_ratio, 5.0)
 
 
+def _market_ratio_ceiling_from_companies(companies, pivot=None):
+    """Return market-wide max weekly growth ratio used as compression ceiling."""
+    pivot_value = float(pivot if pivot is not None else get_investment_outlier_pivot())
+    ratios = []
+    for company in companies or []:
+        current_nw = _parse_money_value(company.get("netWorth", 0))
+        prev_nw = _parse_money_value(company.get("prevNetWorth", 0))
+        if current_nw > 0 and prev_nw > 0:
+            ratios.append(current_nw / prev_nw)
+    return max(max(ratios), pivot_value) if ratios else pivot_value
+
+
 def _entry_net_worth_from_net_value(total_invested, total_net_value, current_net_worth):
     invested = float(total_invested or 0)
     net_value = float(total_net_value or 0)
@@ -2297,11 +2309,11 @@ def _entry_net_worth_from_net_value(total_invested, total_net_value, current_net
     return round((invested * current_nw) / net_value, 4)
 
 
-def get_user_investment_holdings(username, current_net_worth_by_company=None):
+def get_user_investment_holdings(username, current_net_worth_by_company=None, ratio_ceiling=None):
     """Return a list of {Company, InvestedAmount, NetWorthAtInvestment} for a user.
     If current_net_worth_by_company is provided, aggregate entries in a way that
     preserves the user's current net value after the 5% profit fee logic."""
-    use_cache = current_net_worth_by_company is None
+    use_cache = current_net_worth_by_company is None and ratio_ceiling is None
     cache_key = f"holdings_{username}"
     if use_cache:
         cached = cache.get(cache_key)
@@ -2310,9 +2322,10 @@ def get_user_investment_holdings(username, current_net_worth_by_company=None):
 
     all_rows = get_all_stock_holdings_raw()
     user_rows = [r for r in all_rows if r.get("Username") == username]
-    ratio_ceiling = None
+    effective_ratio_ceiling = ratio_ceiling
     if current_net_worth_by_company:
-        ratio_ceiling = _max_ratio_from_position_rows(user_rows, current_net_worth_by_company)
+        if effective_ratio_ceiling is None:
+            effective_ratio_ceiling = _max_ratio_from_position_rows(user_rows, current_net_worth_by_company)
 
     company_map = {}
     for r in user_rows:
@@ -2352,7 +2365,7 @@ def get_user_investment_holdings(username, current_net_worth_by_company=None):
                     invested,
                     entry_nw,
                     current_nw,
-                    ratio_ceiling=ratio_ceiling,
+                    ratio_ceiling=effective_ratio_ceiling,
                 )
             company_data["NetWorthAtInvestment"] = _entry_net_worth_from_net_value(
                 total_invested,
@@ -2765,6 +2778,7 @@ def invest_in_company(username, company_name, amount):
             return "company_not_found"
         if company["netWorth"] <= 0:
             return "no_net_worth"
+        market_ratio_ceiling = _market_ratio_ceiling_from_companies(data["companies"])
 
         # Optional per-company cap: max principal each user can put into one company.
         entity_limit = company.get("entityLimit")
@@ -2816,11 +2830,8 @@ def invest_in_company(username, company_name, amount):
                     lot_rows.append((invested, entry_nw))
                     matching_rows.append(idx)
 
-            ratio_ceiling = 5.0
+            ratio_ceiling = market_ratio_ceiling
             if lot_rows:
-                raw_ratios = [company["netWorth"] / entry_nw for _, entry_nw in lot_rows if entry_nw > 0]
-                if raw_ratios:
-                    ratio_ceiling = max(max(raw_ratios), 5.0)
                 for invested, entry_nw in lot_rows:
                     existing_total_net_value += _net_value_for_position(
                         invested,
@@ -2878,7 +2889,8 @@ def divest_from_company(username, company_name, withdraw_amount):
             return "no_net_worth"
 
         company_nw_map = {c["name"]: c["netWorth"] for c in data["companies"]}
-        holdings = get_user_investment_holdings(username, company_nw_map)
+        market_ratio_ceiling = _market_ratio_ceiling_from_companies(data["companies"])
+        holdings = get_user_investment_holdings(username, company_nw_map, ratio_ceiling=market_ratio_ceiling)
         holding  = next((h for h in holdings if h.get("Company") == company_name), None)
 
         if not holding:
@@ -2887,13 +2899,12 @@ def divest_from_company(username, company_name, withdraw_amount):
         # Current value of their entire stake (net value after 5% bank fee on profits)
         entry_nw = holding["NetWorthAtInvestment"]
         invested = holding["InvestedAmount"]
-        ratio_ceiling = _max_ratio_from_position_rows(holdings, company_nw_map)
         current_value = round(
             _net_value_for_position(
                 invested,
                 entry_nw,
                 company["netWorth"],
-                ratio_ceiling=ratio_ceiling,
+                ratio_ceiling=market_ratio_ceiling,
             ),
             2,
         )
@@ -5761,11 +5772,10 @@ def stocks():
         cache.invalidate("investments_data", "investments_data_v2")
         inv_data = get_investments_data()
     company_nw_map = {c["name"]: c["netWorth"] for c in inv_data["companies"]}
-    holdings     = get_user_investment_holdings(username, company_nw_map)
+    market_ratio_ceiling = _market_ratio_ceiling_from_companies(inv_data["companies"])
+    holdings     = get_user_investment_holdings(username, company_nw_map, ratio_ceiling=market_ratio_ceiling)
     balance      = get_user_balance(username)
     fund_balance = get_investment_fund_balance(username)
-
-    ratio_ceiling = _max_ratio_from_position_rows(holdings, company_nw_map)
 
     # Attach current value + P&L with the same compressed ratio context used by backend checks.
     portfolio_value = 0.0
@@ -5775,7 +5785,7 @@ def stocks():
             holding.get("InvestedAmount", 0),
             holding.get("NetWorthAtInvestment", 0),
             company_nw,
-            ratio_ceiling=ratio_ceiling,
+            ratio_ceiling=market_ratio_ceiling,
         )
         holding["CurrentValue"] = round(current_value, 2)
         holding["PL"] = round(current_value - float(holding.get("InvestedAmount", 0) or 0), 2)
@@ -6118,16 +6128,16 @@ def api_stocks():
     username = session["user"]
     inv_data = get_investments_data()
     company_nw_map = {c["name"]: c["netWorth"] for c in inv_data["companies"]}
-    holdings = get_user_investment_holdings(username, company_nw_map)
+    market_ratio_ceiling = _market_ratio_ceiling_from_companies(inv_data["companies"])
+    holdings = get_user_investment_holdings(username, company_nw_map, ratio_ceiling=market_ratio_ceiling)
     holdings_map = {h["Company"]: h for h in holdings}
-    ratio_ceiling = _max_ratio_from_position_rows(holdings, company_nw_map)
     result = []
     for c in inv_data["companies"]:
         h = holdings_map.get(c["name"], {})
         inv    = h.get("InvestedAmount", 0)
         nw_in  = h.get("NetWorthAtInvestment", 0)
         cur_val = round(
-            _net_value_for_position(inv, nw_in, c["netWorth"], ratio_ceiling=ratio_ceiling),
+            _net_value_for_position(inv, nw_in, c["netWorth"], ratio_ceiling=market_ratio_ceiling),
             2,
         ) if nw_in > 0 else 0.0
         result.append({
