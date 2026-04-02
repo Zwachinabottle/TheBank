@@ -5912,8 +5912,13 @@ def approve_fund_request(row_index):
                                f"Investment fund of ${amount:.2f} approved by {session['user']} (total fund: ${new_total:.2f})")
             flash(f"Approved ${amount:.2f} investment fund for {username}. Their fund total is now ${new_total:.2f}.", "success")
         cache.invalidate("pending_fund_requests")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": True, "message": f"Approved ${amount:.2f} investment fund for {username}."})
     except Exception as e:
-        flash(f"Error approving fund request: {str(e)}", "error")
+        error_msg = "API quota exceeded. Please wait a moment and try again." if "quota" in str(e).lower() else f"Error approving fund request: {str(e)}"
+        flash(error_msg, "error")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 429 if "quota" in str(e).lower() else 500
     return redirect(url_for("federal_reserve"))
 
 
@@ -5930,8 +5935,13 @@ def deny_fund_request(row_index):
         username = retry_with_backoff(get_and_deny)
         cache.invalidate("pending_fund_requests")
         flash(f"Denied investment fund request for {username}.", "info")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": True, "message": f"Denied investment fund request for {username}."})
     except Exception as e:
-        flash(f"Error: {str(e)}", "error")
+        error_msg = "API quota exceeded. Please wait a moment and try again." if "quota" in str(e).lower() else f"Error: {str(e)}"
+        flash(error_msg, "error")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"success": False, "message": error_msg}), 429 if "quota" in str(e).lower() else 500
     return redirect(url_for("federal_reserve"))
 
 
