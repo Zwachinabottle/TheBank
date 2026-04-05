@@ -2819,7 +2819,6 @@ def invest_in_company(username, company_name, amount):
             all_rows = stock_holdings_sheet.get_all_records()
             matching_rows = []
             existing_total_invested = 0.0
-            existing_total_net_value = 0.0
             lot_rows = []
 
             for idx, row in enumerate(all_rows, start=2):
@@ -2830,24 +2829,14 @@ def invest_in_company(username, company_name, amount):
                     lot_rows.append((invested, entry_nw))
                     matching_rows.append(idx)
 
-            ratio_ceiling = market_ratio_ceiling
-            if lot_rows:
-                for invested, entry_nw in lot_rows:
-                    existing_total_net_value += _net_value_for_position(
-                        invested,
-                        entry_nw,
-                        company["netWorth"],
-                        ratio_ceiling=ratio_ceiling,
-                    )
-
             if matching_rows:
                 new_total_invested = round(existing_total_invested + amount, 4)
-                new_total_net_value = existing_total_net_value + amount
-                new_entry_nw = _entry_net_worth_from_net_value(
-                    new_total_invested,
-                    new_total_net_value,
-                    company["netWorth"],
-                )
+                # Calculate weighted average entry_nw: (old_invested * old_entry_nw + new_amount * current_nw) / total
+                total_weight = 0.0
+                for invested, entry_nw in lot_rows:
+                    total_weight += invested * entry_nw
+                total_weight += amount * company["netWorth"]
+                new_entry_nw = round(total_weight / new_total_invested, 4)
                 stock_holdings_sheet.update_cell(matching_rows[0], 3, new_total_invested)
                 stock_holdings_sheet.update_cell(matching_rows[0], 4, new_entry_nw)
                 for idx in reversed(matching_rows[1:]):
