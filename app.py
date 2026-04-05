@@ -2024,6 +2024,8 @@ def _compress_investment_ratio_outliers(ratio, max_ratio, pivot=5.0):
     Formula:
       if ratio <= pivot: keep as-is
       else: pivot + log(ratio / pivot) / log(max_ratio / pivot) * pivot
+
+    Result is capped at max_ratio (not at a hard p*2 limit).
     """
     r = float(ratio or 0.0)
     max_r = float(max_ratio or 0.0)
@@ -2039,7 +2041,7 @@ def _compress_investment_ratio_outliers(ratio, max_ratio, pivot=5.0):
         return r
 
     compressed = p + (math.log(r / p) / denominator) * p
-    return max(p, min(p * 2.0, compressed))
+    return max(p, min(max_r, compressed))
 
 
 def get_investments_data():
@@ -2148,11 +2150,19 @@ def get_investments_data():
         if not name or name.lower() in ("inflation", "currentweek"):
             continue
 
-        # Build history for every labelled week
+        # Build history for weeks up to and including current week only
         history = []
-        for i in week_cols:
-            val = _parse_nw(row[i]) if i < len(row) else 0.0
-            history.append({"week": str(weeks_row[i]), "netWorth": val})
+        if current_col in week_cols:
+            current_week_idx = week_cols.index(current_col)
+            # Include all weeks up to and including current week
+            for i in week_cols[:current_week_idx + 1]:
+                val = _parse_nw(row[i]) if i < len(row) else 0.0
+                history.append({"week": str(weeks_row[i]), "netWorth": val})
+        else:
+            # Fallback: if current_col not in week_cols, just use all weeks (shouldn't happen)
+            for i in week_cols:
+                val = _parse_nw(row[i]) if i < len(row) else 0.0
+                history.append({"week": str(weeks_row[i]), "netWorth": val})
 
         current_nw = _parse_nw(row[current_col]) if current_col < len(row) else 0.0
 
@@ -2311,8 +2321,8 @@ def _entry_net_worth_from_net_value(total_invested, total_net_value, current_net
 
 def get_user_investment_holdings(username, current_net_worth_by_company=None, ratio_ceiling=None):
     """Return a list of {Company, InvestedAmount, NetWorthAtInvestment} for a user.
-    If current_net_worth_by_company is provided, aggregate entries in a way that
-    preserves the user's current net value after the 5% profit fee logic."""
+    Uses stored entry_nw values directly without recalculation.
+    Multiple lots per company are consolidated using weighted average."""
     use_cache = current_net_worth_by_company is None and ratio_ceiling is None
     cache_key = f"holdings_{username}"
     if use_cache:
@@ -2322,10 +2332,6 @@ def get_user_investment_holdings(username, current_net_worth_by_company=None, ra
 
     all_rows = get_all_stock_holdings_raw()
     user_rows = [r for r in all_rows if r.get("Username") == username]
-    effective_ratio_ceiling = ratio_ceiling
-    if current_net_worth_by_company:
-        if effective_ratio_ceiling is None:
-            effective_ratio_ceiling = _max_ratio_from_position_rows(user_rows, current_net_worth_by_company)
 
     company_map = {}
     for r in user_rows:
@@ -2354,25 +2360,10 @@ def get_user_investment_holdings(username, current_net_worth_by_company=None, ra
         total_invested = company_data["InvestedAmount"]
 
         company_name = company_data["Company"]
-        current_nw = None
-        if current_net_worth_by_company:
-            current_nw = current_net_worth_by_company.get(company_name)
 
-        if total_invested > 0 and current_nw and current_nw > 0:
-            total_net_value = 0.0
-            for invested, entry_nw in company_data["rows"]:
-                total_net_value += _net_value_for_position(
-                    invested,
-                    entry_nw,
-                    current_nw,
-                    ratio_ceiling=effective_ratio_ceiling,
-                )
-            company_data["NetWorthAtInvestment"] = _entry_net_worth_from_net_value(
-                total_invested,
-                total_net_value,
-                current_nw,
-            )
-        elif total_invested > 0:
+        # Always use simple weighted average entry_nw from stored data
+        # Don't recalculate it from compressed values (that causes garbage)
+        if total_invested > 0:
             company_data["NetWorthAtInvestment"] = round(
                 company_data["weighted_entry_total"] / total_invested, 4
             )
@@ -2814,38 +2805,54 @@ def invest_in_company(username, company_name, amount):
         add_investment_log(username, "BuyInvestment", company_name, round(amount, 2),
                            f"Invested ${amount:.2f} in {company_name}")
 
-        # Update holdings while preserving existing net value + profit history
+        # Update holdings - consolidate into one row per company, preserving profit history
         def update_holdings():
             all_rows = stock_holdings_sheet.get_all_records()
             matching_rows = []
-            existing_total_invested = 0.0
-            lot_rows = []
+            existing_invested = 0.0
+            existing_capped_value = 0.0
+            lot_data = []
 
             for idx, row in enumerate(all_rows, start=2):
                 if row.get("Username") == username and row.get("Company") == company_name:
                     invested = _parse_money_value(row.get("InvestedAmount", 0))
                     entry_nw = _parse_money_value(row.get("NetWorthAtInvestment", 0))
-                    existing_total_invested += invested
-                    lot_rows.append((invested, entry_nw))
+                    existing_invested += invested
+                    lot_data.append((invested, entry_nw))
                     matching_rows.append(idx)
 
             if matching_rows:
-                new_total_invested = round(existing_total_invested + amount, 4)
-                # Calculate weighted average entry_nw: (old_invested * old_entry_nw + new_amount * current_nw) / total
-                total_weight = 0.0
-                for invested, entry_nw in lot_rows:
-                    total_weight += invested * entry_nw
-                total_weight += amount * company["netWorth"]
-                new_entry_nw = round(total_weight / new_total_invested, 4)
+                # Calculate capped value for each existing lot, sum them
+                for invested, entry_nw in lot_data:
+                    capped_val = _net_value_for_position(
+                        invested,
+                        entry_nw,
+                        company["netWorth"],
+                        ratio_ceiling=market_ratio_ceiling,
+                    )
+                    existing_capped_value += capped_val
+
+                # New totals
+                new_total_invested = round(existing_invested + amount, 4)
+                new_total_net_value = round(existing_capped_value + amount, 2)
+
+                # Back-calculate consolidated entry_nw that produces this net value
+                new_entry_nw = _entry_net_worth_from_net_value(
+                    new_total_invested,
+                    new_total_net_value,
+                    company["netWorth"],
+                )
+
+                # Update first row, delete rest
                 stock_holdings_sheet.update_cell(matching_rows[0], 3, new_total_invested)
                 stock_holdings_sheet.update_cell(matching_rows[0], 4, new_entry_nw)
                 for idx in reversed(matching_rows[1:]):
                     stock_holdings_sheet.delete_rows(idx)
-                return
-
-            stock_holdings_sheet.append_row(
-                [username, company_name, round(amount, 4), round(company["netWorth"], 4)]
-            )
+            else:
+                # No existing holdings, just append
+                stock_holdings_sheet.append_row(
+                    [username, company_name, round(amount, 4), round(company["netWorth"], 4)]
+                )
 
         retry_with_backoff(update_holdings)
         cache.invalidate(f"holdings_{username}", f"user_balance_{username}", "all_users", "all_stock_holdings_raw")
@@ -2931,10 +2938,8 @@ def divest_from_company(username, company_name, withdraw_amount):
                     stock_holdings_sheet.delete_rows(idx)
             else:
                 # Keep only the first row with the remaining investment, delete others
-                stock_holdings_sheet.batch_update([
-                    {"range": f"C{matching_rows[0]}", "values": [[remaining_invested]]},
-                    {"range": f"D{matching_rows[0]}", "values": [[entry_nw]]},
-                ])
+                stock_holdings_sheet.update_cell(matching_rows[0], 3, remaining_invested)
+                stock_holdings_sheet.update_cell(matching_rows[0], 4, entry_nw)
                 for idx in reversed(matching_rows[1:]):
                     stock_holdings_sheet.delete_rows(idx)
 
