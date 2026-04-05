@@ -2848,10 +2848,8 @@ def invest_in_company(username, company_name, amount):
                     new_total_net_value,
                     company["netWorth"],
                 )
-                stock_holdings_sheet.batch_update([
-                    {"range": f"C{matching_rows[0]}", "values": [[new_total_invested]]},
-                    {"range": f"D{matching_rows[0]}", "values": [[new_entry_nw]]},
-                ])
+                stock_holdings_sheet.update_cell(matching_rows[0], 3, new_total_invested)
+                stock_holdings_sheet.update_cell(matching_rows[0], 4, new_entry_nw)
                 for idx in reversed(matching_rows[1:]):
                     stock_holdings_sheet.delete_rows(idx)
                 return
