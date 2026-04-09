@@ -5359,7 +5359,7 @@ def lottery_buy():
         flash("Maximum 1,000 tickets per purchase.", "error")
         return redirect(url_for("lottery"))
 
-    total_cost = round(quantity * 2.0, 2)   # $2 per ticket
+    total_cost = round(quantity * 20.0, 2)   # $20 per ticket
 
     # ── Balance check ─────────────────────────────────────────
     user_balance = get_user_balance(username)
@@ -5389,22 +5389,22 @@ def lottery_buy():
                     nums = [int(entry[j]) for j in range(4)]
                     vex  = int(entry[4])
                     for n in nums:
-                        if not (1 <= n <= 9):
+                        if not (1 <= n <= 13):
                             raise ValueError("main number out of range")
                     if len(set(nums)) != 4:
                         raise ValueError("numbers must be unique")
-                    if not (1 <= vex <= 12):
+                    if not (1 <= vex <= 24):
                         raise ValueError("vex out of range")
                     tickets_data.append((sorted(nums), vex))
             except (ValueError, TypeError, KeyError, IndexError) as exc:
-                flash(f"Invalid ticket numbers: {exc}. Main: 4 unique from 1-9, Vex Ball: 1-12.", "error")
+                flash(f"Invalid ticket numbers: {exc}. Main: 4 unique from 1-13, Vex Ball: 1-24.", "error")
                 return redirect(url_for("lottery"))
         else:
             flash("Please use the Pick Numbers form to enter your numbers.", "error")
             return redirect(url_for("lottery"))
     else:
         tickets_data = [
-            (sorted(_random.sample(range(1, 10), 4)), _random.randint(1, 12))
+            (sorted(_random.sample(range(1, 14), 4)), _random.randint(1, 24))
             for _ in range(quantity)
         ]
 
@@ -5484,14 +5484,14 @@ def lottery_draw():
 
     # Validate
     for n in nums:
-        if not (1 <= n <= 9):
-            flash("All 4 main numbers must be between 1 and 9.", "error")
+        if not (1 <= n <= 13):
+            flash("All 4 main numbers must be between 1 and 13.", "error")
             return redirect(url_for("lottery"))
     if len(set(nums)) != 4:
         flash("All 4 numbers must be unique.", "error")
         return redirect(url_for("lottery"))
-    if not (1 <= vex <= 12):
-        flash("Vex Ball must be between 1 and 12.", "error")
+    if not (1 <= vex <= 24):
+        flash("Vex Ball must be between 1 and 24.", "error")
         return redirect(url_for("lottery"))
 
     set_lottery_winning(nums, vex, draw_name)
@@ -5574,16 +5574,16 @@ def lottery_draw():
                 balance_updates[uname] = round(_cur(uname) + award, 2)
             balance_updates["LotteryPrize"] = 0.0
 
-        # 4-number match winners ($20 each) — paid from reserve
+        # 4-number match winners ($200 each) — paid from reserve
         reserve_remaining = reserve_amount
         for uname in winners_match:
+            balance_updates[uname] = round(_cur(uname) + 200.0, 2)
+            reserve_remaining = max(0.0, reserve_remaining - 200.0)
+
+        # Vex ball winners ($20 each) — paid from reserve
+        for uname in winners_vex:
             balance_updates[uname] = round(_cur(uname) + 20.0, 2)
             reserve_remaining = max(0.0, reserve_remaining - 20.0)
-
-        # Vex ball winners ($2 each) — paid from reserve
-        for uname in winners_vex:
-            balance_updates[uname] = round(_cur(uname) + 2.0, 2)
-            reserve_remaining = max(0.0, reserve_remaining - 2.0)
 
         # Update reserve pool if any non-jackpot payouts were made
         if winners_match or winners_vex:
@@ -5613,13 +5613,13 @@ def lottery_draw():
                                   f"Jackpot winner! Drawing: {draw_label}"])
                 pw_rows.append([uname, "Jackpot Win", award, draw_label, now_str])
         for uname in winners_match:
-            log_rows.append([uname, "4-Number Win", 20.0, now_str,
+            log_rows.append([uname, "4-Number Win", 200.0, now_str,
                               f"Matched all 4 numbers! Drawing: {draw_label}"])
-            pw_rows.append([uname, "4-Number Win", 20.0, draw_label, now_str])
+            pw_rows.append([uname, "4-Number Win", 200.0, draw_label, now_str])
         for uname in winners_vex:
-            log_rows.append([uname, "Vex Ball Win", 2.0, now_str,
+            log_rows.append([uname, "Vex Ball Win", 20.0, now_str,
                               f"Vex Ball match refund. Drawing: {draw_label}"])
-            pw_rows.append([uname, "Vex Ball Win", 2.0, draw_label, now_str])
+            pw_rows.append([uname, "Vex Ball Win", 20.0, draw_label, now_str])
         if log_rows:
             def _write_logs(rows=log_rows):
                 lottery_logs_sheet.append_rows(rows, value_input_option="RAW")

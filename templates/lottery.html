@@ -1489,7 +1489,7 @@
   <div class="buy-modal-overlay" id="buyModal">
     <div class="buy-modal-box">
       <div class="buy-modal-header">
-        <h3>🎟️ Buy Tickets — $2 each</h3>
+        <h3>🎟️ Buy Tickets — $20 each</h3>
         <button class="buy-modal-close" id="close-buy-modal" aria-label="Close">✕</button>
       </div>
 
@@ -1503,17 +1503,17 @@
           <button type="button" class="pkg-btn selected" data-qty="1">
             <span class="pkg-tickets">1</span>
             <span class="pkg-label">Ticket</span>
-            <span class="pkg-price">$2</span>
+            <span class="pkg-price">$20</span>
           </button>
           <button type="button" class="pkg-btn" data-qty="10">
             <span class="pkg-tickets">10</span>
             <span class="pkg-label">Tickets</span>
-            <span class="pkg-price">$20</span>
+            <span class="pkg-price">$200</span>
           </button>
           <button type="button" class="pkg-btn" data-qty="100">
             <span class="pkg-tickets">100</span>
             <span class="pkg-label">Tickets</span>
-            <span class="pkg-price">$200</span>
+            <span class="pkg-price">$2000</span>
           </button>
           <button type="button" class="pkg-btn" data-qty="custom">
             <span class="pkg-tickets">✏️</span>
@@ -1540,8 +1540,8 @@
 
         <!-- Summary -->
         <div class="purchase-summary">
-          <span id="summary-text">1 ticket × $2.00</span>
-          <span class="total-price" id="summary-total">Total: $2.00</span>
+          <span id="summary-text">1 ticket × $20.00</span>
+          <span class="total-price" id="summary-total">Total: $20.00</span>
         </div>
 
         <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;text-align:right;">
@@ -1568,28 +1568,28 @@
         <div class="banker-num-row">
           <div class="banker-num-field">
             <label>Ball 1</label>
-            <input type="number" class="banker-num-input" name="n1" min="1" max="9"
+                 <input type="number" class="banker-num-input" name="n1" min="1" max="13"
                    value="{% if winning %}{{ winning.numbers[0] }}{% endif %}" required>
           </div>
           <div class="banker-num-field">
             <label>Ball 2</label>
-            <input type="number" class="banker-num-input" name="n2" min="1" max="9"
+                 <input type="number" class="banker-num-input" name="n2" min="1" max="13"
                    value="{% if winning %}{{ winning.numbers[1] }}{% endif %}" required>
           </div>
           <div class="banker-num-field">
             <label>Ball 3</label>
-            <input type="number" class="banker-num-input" name="n3" min="1" max="9"
+                 <input type="number" class="banker-num-input" name="n3" min="1" max="13"
                    value="{% if winning %}{{ winning.numbers[2] }}{% endif %}" required>
           </div>
           <div class="banker-num-field">
             <label>Ball 4</label>
-            <input type="number" class="banker-num-input" name="n4" min="1" max="9"
+                 <input type="number" class="banker-num-input" name="n4" min="1" max="13"
                    value="{% if winning %}{{ winning.numbers[3] }}{% endif %}" required>
           </div>
           <span class="banker-sep">+</span>
           <div class="banker-num-field">
             <label style="color:#24bff0;">Vex Ball</label>
-            <input type="number" class="banker-num-input vex-input" name="vex" min="1" max="12"
+                 <input type="number" class="banker-num-input vex-input" name="vex" min="1" max="24"
                    value="{% if winning %}{{ winning.vex }}{% endif %}" required>
           </div>
         </div>
@@ -1685,7 +1685,7 @@
         <span class="ball ball-vex" style="width:50px;height:50px;font-size:20px;">{{ winning.vex }}</span>
       </div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:24px;">
-        4 Main Numbers (1–9) &nbsp;+&nbsp; Vex Ball (1–12)
+        4 Main Numbers (1–13) &nbsp;+&nbsp; Vex Ball (1–24)
       </p>
       <button class="modal-close-btn" onclick="document.getElementById('winnerModal').classList.remove('open')">Close</button>
     </div>
@@ -1698,15 +1698,15 @@
       <div class="modal-trophy">❓</div>
       <h2>How It Works</h2>
       <p>
-        Each ticket costs <strong>$2</strong>. Pick <strong>4 unique numbers (1–9)</strong> and a <strong>Vex Ball (1–12)</strong>.
+        Each ticket costs <strong>$20</strong>. Pick <strong>4 unique numbers (1–13)</strong> and a <strong>Vex Ball (1–24)</strong>.
         <br><br>
         <strong>Prizes:</strong><br>
-        🔵 Vex Ball only &rarr; <strong>$2 refund</strong><br>
-        🟢 All 4 numbers (no Vex Ball) &rarr; <strong>$20</strong><br>
+        🔵 Vex Ball only &rarr; <strong>$20 refund</strong><br>
+        🟢 All 4 numbers (no Vex Ball) &rarr; <strong>$200</strong><br>
         🌟 All 4 numbers + Vex Ball &rarr; <strong>Jackpot</strong> (split among all jackpot winners)
         <br><br>
-        <strong>Jackpot Odds:</strong> 1 in 1,512<br>
-        <span style="font-size:12px;color:var(--text-muted);">C(9,4) &times; 12 = 126 &times; 12 = 1,512 possible combinations</span>
+        <strong>Jackpot Odds:</strong> 1 in 17,160 (closest to 1 in 15,000 with these rules)<br>
+        <span style="font-size:12px;color:var(--text-muted);">C(13,4) &times; 24 = 715 &times; 24 = 17,160 possible combinations</span>
         <br><br>
         The more tickets you buy, the bigger the community prize and the better your chances!
       </p>
@@ -1793,7 +1793,7 @@
 
     // ── Ticket purchase logic ────────────────────────────────────
     let selectedQty = 1;
-    const PRICE_PER = 2;
+    const PRICE_PER = 20;
     let currentPickMode = 'auto';
 
     function updateSummary() {
@@ -1814,16 +1814,16 @@
           <span class="pt-label" style="min-width:44px;">🎟️ ${i + 1}</span>
           <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
             <div style="display:flex;gap:4px;">
-              <input type="number" class="pt-input pt-n1" min="1" max="9" placeholder="1–9">
-              <input type="number" class="pt-input pt-n2" min="1" max="9" placeholder="1–9">
-              <input type="number" class="pt-input pt-n3" min="1" max="9" placeholder="1–9">
-              <input type="number" class="pt-input pt-n4" min="1" max="9" placeholder="1–9">
+              <input type="number" class="pt-input pt-n1" min="1" max="13" placeholder="1–13">
+              <input type="number" class="pt-input pt-n2" min="1" max="13" placeholder="1–13">
+              <input type="number" class="pt-input pt-n3" min="1" max="13" placeholder="1–13">
+              <input type="number" class="pt-input pt-n4" min="1" max="13" placeholder="1–13">
             </div>
-            <span style="font-size:9px;color:#f5c842;font-weight:700;letter-spacing:.5px;">4 UNIQUE NUMBERS (1–9)</span>
+            <span style="font-size:9px;color:#f5c842;font-weight:700;letter-spacing:.5px;">4 UNIQUE NUMBERS (1–13)</span>
           </div>
           <span class="pt-sep" style="margin:0 4px;">+</span>
           <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-            <input type="number" class="pt-input pt-vex vex-input" min="1" max="12" placeholder="1–12">
+            <input type="number" class="pt-input pt-vex vex-input" min="1" max="24" placeholder="1–24">
             <span style="font-size:9px;color:#24bff0;font-weight:700;letter-spacing:.5px;">VEX</span>
           </div>
         `;
@@ -1900,8 +1900,8 @@
           ];
           const vex = parseInt(row.querySelector('.pt-vex').value, 10);
           for (let j = 0; j < nums.length; j++) {
-            if (!(nums[j] >= 1 && nums[j] <= 9)) {
-              alert(`Ticket ${idx + 1}: All 4 numbers must be between 1 and 9.`);
+            if (!(nums[j] >= 1 && nums[j] <= 13)) {
+              alert(`Ticket ${idx + 1}: All 4 numbers must be between 1 and 13.`);
               valid = false; return;
             }
           }
@@ -1910,8 +1910,8 @@
             alert(`Ticket ${idx + 1}: All 4 numbers must be unique.`);
             valid = false; return;
           }
-          if (!(vex >= 1 && vex <= 12)) {
-            alert(`Ticket ${idx + 1}: Vex Ball must be between 1 and 12.`);
+          if (!(vex >= 1 && vex <= 24)) {
+            alert(`Ticket ${idx + 1}: Vex Ball must be between 1 and 24.`);
             valid = false; return;
           }
           tickets.push([...nums, vex]);
