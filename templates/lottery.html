@@ -1705,7 +1705,7 @@
         🟢 All 4 numbers (no Vex Ball) &rarr; <strong>$200</strong><br>
         🌟 All 4 numbers + Vex Ball &rarr; <strong>Jackpot</strong> (split among all jackpot winners)
         <br><br>
-        <strong>Jackpot Odds:</strong> 1 in 17,160 (closest to 1 in 15,000 with these rules)<br>
+        <strong>Jackpot Odds:</strong> 1 in 17,160<br>
         <span style="font-size:12px;color:var(--text-muted);">C(13,4) &times; 24 = 715 &times; 24 = 17,160 possible combinations</span>
         <br><br>
         The more tickets you buy, the bigger the community prize and the better your chances!
@@ -1842,7 +1842,7 @@
           customRow.classList.add('visible');
           document.getElementById('custom-qty').focus();
           const parsed = parseInt(document.getElementById('custom-qty').value, 10);
-          selectedQty = (parsed > 0 && parsed <= 1000) ? parsed : 1;
+          selectedQty = (parsed > 0 && parsed <= 999999999999) ? parsed : 1;
         } else {
           customRow.classList.remove('visible');
           selectedQty = parseInt(qty, 10);
